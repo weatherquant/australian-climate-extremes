@@ -1,0 +1,28 @@
+---
+title: "Literature Review Protocol"
+format: html
+---
+
+## Review question
+
+What statistical methods have been used to detect and attribute changes in the marginal, multivariate and spatial dependence structures of climate extremes, and what methodological gaps remain?
+
+## Include
+
+- non-stationary univariate extremes
+- dynamic tail dependence
+- compound climate events
+- spatial extremes and spatial concurrence
+- sequential compound events
+- attribution of extreme-event probabilities
+- decomposition of marginal and dependence changes
+
+## Exclude
+
+- trend maps with no inferential treatment of extremes
+- impact-only studies with no statistical hazard model
+- purely descriptive threshold counts where dependence is central but unmodelled
+
+## Screening
+
+Record search source, search date, query, inclusion decision and reason for exclusion. Populate `evidence_matrix.csv` only after full-text screening.

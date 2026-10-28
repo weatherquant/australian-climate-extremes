@@ -1,0 +1,6 @@
+---
+title: "02 - Station Availability"
+format: html
+---
+
+This report will summarise annual completeness by station and variable and map the candidate station network.

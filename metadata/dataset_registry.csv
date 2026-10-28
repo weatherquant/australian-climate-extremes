@@ -1,0 +1,13 @@
+dataset_id,dataset_name,provider,variable,resolution,temporal_frequency,start_date,end_date,raw_path,format,version,acquired_date,licence,citation,notes
+station_temp_raw,,,,daily,,,,,,source,,, ,Populate when supplied
+station_temp_hom,,,,daily,,,,,,source,,, ,Populate when supplied
+station_rainfall,,,,daily,,,,,,source,,, ,Populate when supplied
+station_wind,,,,daily,,,,,,source,,, ,Populate when supplied
+station_humidity,,,,daily,,,,,,source,,, ,Populate when supplied
+station_metadata,,,,event/static,,,,,,source,,, ,Populate when supplied
+awra_soil_moisture,,,,daily,,,,,,source,,, ,Populate when supplied
+barra_r2,,,,subdaily/daily,,,,,,source,,, ,Keep gridded archive outside Git
+nino34,,,,monthly,,,,,,source,,, ,Populate when supplied
+soi,,,,monthly,,,,,,source,,, ,Populate when supplied
+dmi,,,,monthly,,,,,,source,,, ,Populate when supplied
+sam,,,,monthly,,,,,,source,,, ,Populate when supplied

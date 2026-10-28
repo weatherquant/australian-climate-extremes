@@ -1,0 +1,12 @@
+---
+title: "01 - Tier 1 Data Inventory"
+format: html
+---
+
+```{r}
+#| label: setup
+library(dplyr)
+library(ggplot2)
+```
+
+This report is generated from project pipeline outputs. It should establish station coverage, record length, missingness, geographic coverage, source/version overlap and the defensible common analysis period before inferential climate analysis begins.

@@ -1,0 +1,6 @@
+---
+title: "06 sensitivity analysis"
+format: html
+---
+
+Analysis placeholder. All substantive results should be generated from pipeline targets rather than manual objects.

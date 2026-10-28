@@ -1,0 +1,6 @@
+---
+title: "05 spatial extremes"
+format: html
+---
+
+Analysis placeholder. All substantive results should be generated from pipeline targets rather than manual objects.

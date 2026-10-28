@@ -1,0 +1,8 @@
+---
+title: "03 - Raw versus Homogenised Temperature"
+format: html
+---
+
+Primary sensitivity analysis comparing raw and homogenised Tmax/Tmin. Homogenisation is treated as a parallel analytical stream, not an overwritten preprocessing step.
+
+Key quantity: adjustment = homogenised - raw.

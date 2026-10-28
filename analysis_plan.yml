@@ -1,0 +1,40 @@
+primary_variables:
+  - tmax
+  - rainfall
+
+primary_temperature_streams:
+  - raw
+  - homogenised
+
+primary_seasons:
+  - annual
+  - DJF
+
+primary_extreme_definitions:
+  temperature: local_95th_percentile
+  rainfall: local_99th_percentile_wet_days
+
+reference_period: null
+analysis_period: null
+station_completeness_rule: null
+
+primary_models:
+  marginal:
+    - stationary
+    - smooth_location
+    - smooth_location_scale
+    - changepoint_location
+  dependence:
+    - empirical
+    - stationary_copula
+    - covariate_dependent_copula
+  spatial:
+    - empirical_extremal_coefficient
+    - regional_spatial_extremes
+
+validation:
+  temporal_block_years: 5
+  spatial_holdout: true
+  threshold_sensitivity: true
+  detrending_sensitivity: true
+  raw_homogenised_sensitivity: true

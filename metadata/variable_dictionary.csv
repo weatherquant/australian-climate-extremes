@@ -1,0 +1,48 @@
+dataset,column,type,unit_or_values,required,description
+station_daily,station_id,character,,yes,Stable station identifier
+station_daily,date,Date,YYYY-MM-DD,yes,Observation date
+station_daily,variable,character,tmax|tmin|rainfall|wind_speed|wind_gust|wind_direction|rh|dewpoint,yes,Canonical variable name
+station_daily,value_original,double,source unit,yes,Original source value
+station_daily,value_clean,double,canonical unit,yes,Value after transparent QC handling
+station_daily,unit,character,degC|mm|m/s|deg|percent,yes,Canonical measurement unit
+station_daily,source_dataset,character,,yes,Dataset registry identifier
+station_daily,data_version,character,raw|quality_controlled|homogenised,yes,Data treatment/version
+station_daily,quality_flag_original,character,,no,Original provider QC flag
+station_daily,quality_status,character,valid|suspect|missing|rejected|unknown,yes,Harmonised QC status
+station_daily,source_file,character,,yes,Original source filename
+temperature_comparison,station_id,character,,yes,Stable station identifier
+temperature_comparison,date,Date,YYYY-MM-DD,yes,Observation date
+temperature_comparison,tmax_raw,double,degC,no,Raw maximum temperature
+temperature_comparison,tmax_homogenised,double,degC,no,Homogenised maximum temperature
+temperature_comparison,tmax_adjustment,double,degC,no,Homogenised minus raw Tmax
+temperature_comparison,tmin_raw,double,degC,no,Raw minimum temperature
+temperature_comparison,tmin_homogenised,double,degC,no,Homogenised minimum temperature
+temperature_comparison,tmin_adjustment,double,degC,no,Homogenised minus raw Tmin
+station_metadata,station_id,character,,yes,Stable station identifier
+station_metadata,station_name,character,,yes,Station name
+station_metadata,latitude,double,degrees_north,yes,Latitude
+station_metadata,longitude,double,degrees_east,yes,Longitude
+station_metadata,elevation_m,double,m,no,Elevation above mean sea level
+station_metadata,state,character,,no,State or territory
+station_metadata,climate_region,character,,no,Climate region
+station_metadata,start_date,Date,YYYY-MM-DD,no,Station start date
+station_metadata,end_date,Date,YYYY-MM-DD,no,Station end date
+station_metadata,current_status,character,,no,Station status
+station_history,station_id,character,,yes,Stable station identifier
+station_history,event_date,Date,YYYY-MM-DD,yes,Metadata event date
+station_history,event_type,character,site_move|instrument_change|screen_change|observation_time_change|station_open|station_close|metadata_change|unknown,yes,Metadata event class
+station_history,old_value,character,,no,Old metadata value
+station_history,new_value,character,,no,New metadata value
+station_history,source,character,,yes,Metadata source
+station_history,notes,character,,no,Notes
+climate_indices_monthly,date,Date,YYYY-MM-01,yes,Month
+climate_indices_monthly,index,character,nino34|soi|dmi|sam,yes,Climate index
+climate_indices_monthly,value,double,,yes,Index value
+climate_indices_monthly,source,character,,yes,Provider/source
+awra_grid,date,Date,YYYY-MM-DD,yes,Date
+awra_grid,cell_id,character,,yes,Grid cell identifier
+awra_grid,longitude,double,degrees_east,yes,Cell longitude
+awra_grid,latitude,double,degrees_north,yes,Cell latitude
+awra_grid,variable,character,soil_moisture_surface|soil_moisture_rootzone,yes,Canonical soil moisture variable
+awra_grid,value,double,,yes,Value
+awra_grid,unit,character,,yes,Source/canonical unit

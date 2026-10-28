@@ -1,0 +1,38 @@
+# Local/restricted/raw data
+/data-raw/stations/**
+/data-raw/awra/**
+/data-raw/barra2/**
+/data-raw/climate_indices/**
+/data-raw/spatial/**
+
+# Large derived datasets
+/data-derived/**
+
+# Local paths and secrets
+config.local.yml
+.Renviron
+
+# R
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# targets
+_targets/
+_targets.RData
+
+# Quarto/R output
+_freeze/
+_site/
+*.html
+
+# OS/temp
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# Keep README placeholders
+!/data-raw/**/README.md
+!/data-derived/**/README.md

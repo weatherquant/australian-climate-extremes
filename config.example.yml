@@ -1,0 +1,25 @@
+project:
+  name: australian-climate-extremes
+  timezone: Australia/Melbourne
+
+paths:
+  station_temperature_raw: /path/to/stations/temperature/raw
+  station_temperature_homogenised: /path/to/stations/temperature/homogenised
+  station_rainfall: /path/to/stations/rainfall
+  station_wind: /path/to/stations/wind
+  station_humidity: /path/to/stations/humidity
+  station_metadata: /path/to/stations/metadata
+  awra_soil_moisture: /path/to/awra/soil_moisture
+  barra2: /path/to/barra2
+  climate_indices: /path/to/climate_indices
+  spatial: /path/to/spatial
+
+analysis:
+  reference_period_start: null
+  reference_period_end: null
+  analysis_start: null
+  analysis_end: null
+  min_completeness: null
+  temperature_percentile: 0.95
+  rainfall_percentile: 0.99
+  temporal_block_years: 5

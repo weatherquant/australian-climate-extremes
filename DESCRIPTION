@@ -1,0 +1,8 @@
+Package: australianclimateextremes
+Type: Project
+Title: Australian Climate Extremes Research Pipeline
+Version: 0.0.1
+Authors@R: person("Jason", "West", role = c("aut", "cre"))
+Description: Reproducible R-first analysis of Australian climate extremes, including raw-versus-homogenised temperature sensitivity, persistence, compound events and spatial dependence.
+License: file LICENSE
+Encoding: UTF-8
