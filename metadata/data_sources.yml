@@ -1,0 +1,182 @@
+acorn_raw:
+
+  dataset_id: acorn_raw
+
+  dataset_name:
+    ACORN-SAT raw data and information bundle
+
+  provider:
+    Bureau of Meteorology
+
+  data_class:
+    observation
+
+  role:
+    primary
+
+  acquisition_method:
+    ftp
+
+  source_url:
+    "ftp://ftp.bom.gov.au/anon/home/ncc/www/change/ACORN_SAT_daily/"
+
+  filename:
+    "v2.3-raw-data-info-bundle.zip"
+
+  version:
+    "2.3"
+
+  immutable:
+    true
+
+
+station_temperature_raw:
+
+  dataset_id: station_temperature_raw
+
+  provider:
+    Bureau of Meteorology
+
+  data_class:
+    observation
+
+  role:
+    primary
+
+  acquisition_method:
+    to_be_defined
+
+
+station_temperature_homogenised:
+
+  dataset_id: station_temperature_homogenised
+
+  provider:
+    Bureau of Meteorology
+
+  data_class:
+    observation
+
+  role:
+    primary
+
+  acquisition_method:
+    to_be_defined
+
+
+station_rainfall:
+
+  dataset_id: station_rainfall
+
+  provider:
+    Bureau of Meteorology
+
+  data_class:
+    observation
+
+  role:
+    primary
+
+  acquisition_method:
+    to_be_defined
+
+
+station_wind:
+
+  dataset_id: station_wind
+
+  provider:
+    Bureau of Meteorology
+
+  data_class:
+    observation
+
+  role:
+    primary
+
+  acquisition_method:
+    to_be_defined
+
+
+station_humidity:
+
+  dataset_id: station_humidity
+
+  provider:
+    Bureau of Meteorology
+
+  data_class:
+    observation
+
+  role:
+    primary
+
+  acquisition_method:
+    to_be_defined
+
+
+barra_r2:
+
+  dataset_id: barra_r2
+
+  provider:
+    Bureau of Meteorology
+
+  data_class:
+    reanalysis
+
+  role:
+    spatial_context
+
+  acquisition_method:
+    aws_s3
+
+
+awra_soil_moisture:
+
+  dataset_id: awra_soil_moisture
+
+  provider:
+    Bureau of Meteorology
+
+  data_class:
+    land_surface
+
+  role:
+    covariate
+
+  acquisition_method:
+    to_be_defined
+
+
+nino34:
+
+  dataset_id: nino34
+
+  data_class:
+    climate_index
+
+  role:
+    covariate
+
+
+dmi:
+
+  dataset_id: dmi
+
+  data_class:
+    climate_index
+
+  role:
+    covariate
+
+
+sam:
+
+  dataset_id: sam
+
+  data_class:
+    climate_index
+
+  role:
+    covariate
