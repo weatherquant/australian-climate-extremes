@@ -1,0 +1,4 @@
+dataset,rows,stations,first_date,last_date
+Raw composite,3927076,112,1910-01-01,2021-12-31
+Homogenised,3964770,112,1910-01-01,2021-12-31
+Paired comparison,3965613,112,1910-01-01,2021-12-31

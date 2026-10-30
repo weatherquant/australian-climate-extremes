@@ -1,0 +1,2 @@
+rows,stations,matched_tmax,raw_only_tmax,homogenised_only_tmax,missing_both_tmax,matched_tmin,raw_only_tmin,homogenised_only_tmin,missing_both_tmin
+3965613,112,3852886,25329,5614,81784,3831664,41399,5748,86802

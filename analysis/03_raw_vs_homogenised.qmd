@@ -1,8 +1,724 @@
 ---
-title: "03 - Raw versus Homogenised Temperature"
-format: html
+title: "Effects of Homogenisation on Australian Daily Temperature Statistics"
+subtitle: "ACORN-SAT v2.3 raw primary-site composites versus published homogenised observations"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
 ---
 
-Primary sensitivity analysis comparing raw and homogenised Tmax/Tmin. Homogenisation is treated as a parallel analytical stream, not an overwritten preprocessing step.
+# Purpose
 
-Key quantity: adjustment = homogenised - raw.
+This report quantifies how ACORN-SAT homogenisation changes the statistical behaviour of Australian daily maximum and minimum temperature. The comparison uses the ACORN-SAT v2.3 raw primary-site composite and the corresponding published v2.3.0 homogenised daily series.
+
+The adjustment convention is
+
+$$
+A^{\max}_{s,t}=T^{\max,\mathrm{hom}}_{s,t}-T^{\max,\mathrm{raw}}_{s,t},
+$$
+
+and analogously for minimum temperature. Positive values indicate that the homogenised observation is warmer than the raw primary-site observation.
+
+The analysis is deliberately paired by ACORN location and date. Results describing adjustments use only dates on which both raw and homogenised values are available for the relevant variable.
+
+# Setup
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(arrow)
+library(ggplot2)
+library(scales)
+
+# Determine project root.
+# Quarto may execute this document from either the project root
+# or the analysis directory.
+project_root <- if (file.exists("_targets.R")) {
+  "."
+} else if (file.exists("../_targets.R")) {
+  ".."
+} else {
+  stop("Could not locate project root containing _targets.R.", call. = FALSE)
+}
+
+comparison_file <- file.path(
+  project_root,
+  "data-derived",
+  "acorn",
+  "comparison",
+  "acorn_raw_homogenised_comparison_v2.3.parquet"
+)
+
+homogenised_file <- file.path(
+  project_root,
+  "data-derived",
+  "acorn",
+  "homogenised",
+  "acorn_homogenised_daily_v2.3.0.parquet"
+)
+
+raw_file <- file.path(project_root,
+                      "data-derived",
+                      "acorn",
+                      "acorn_raw_composite_v2.3.parquet")
+
+required_files <- c(comparison_file, homogenised_file, raw_file)
+
+missing_files <- required_files[!file.exists(required_files)]
+
+if (length(missing_files) > 0L) {
+  stop(
+    "Required derived files are missing:\n",
+    paste(missing_files, collapse = "\n"),
+    call. = FALSE
+  )
+}
+
+comparison <- data.table::as.data.table(arrow::read_parquet(comparison_file))
+
+homogenised <- data.table::as.data.table(arrow::read_parquet(homogenised_file))
+
+raw_composite <- data.table::as.data.table(arrow::read_parquet(raw_file))
+
+setorder(comparison, acorn_station_number, date)
+comparison[, year := as.integer(format(date, "%Y"))]
+comparison[, month := as.integer(format(date, "%m"))]
+comparison[, season := factor(
+  fifelse(month %in% c(12L, 1L, 2L), "DJF",
+  fifelse(month %in% 3:5, "MAM",
+  fifelse(month %in% 6:8, "JJA", "SON"))),
+  levels = c("DJF", "MAM", "JJA", "SON")
+)]
+
+matched_tmax <- comparison[matched_tmax == TRUE]
+matched_tmin <- comparison[matched_tmin == TRUE]
+
+theme_set(theme_minimal(base_size = 11))
+```
+
+# Data integrity and overlap
+
+## Network and period
+
+```{r}
+#| label: network-summary
+
+network_summary <- data.table(
+  dataset = c("Raw composite", "Homogenised", "Paired comparison"),
+  rows = c(nrow(raw_composite), nrow(homogenised), nrow(comparison)),
+  stations = c(
+    uniqueN(raw_composite$acorn_station_number),
+    uniqueN(homogenised$acorn_station_number),
+    uniqueN(comparison$acorn_station_number)
+  ),
+  first_date = c(
+    min(raw_composite$date, na.rm = TRUE),
+    min(homogenised$date, na.rm = TRUE),
+    min(comparison$date, na.rm = TRUE)
+  ),
+  last_date = c(
+    max(raw_composite$date, na.rm = TRUE),
+    max(homogenised$date, na.rm = TRUE),
+    max(comparison$date, na.rm = TRUE)
+  )
+)
+
+network_summary
+```
+
+## Matching status
+
+```{r}
+#| label: matching-audit
+
+matching_audit <- comparison[, .(
+  rows = .N,
+  stations = uniqueN(acorn_station_number),
+  matched_tmax = sum(tmax_match_status == "matched"),
+  raw_only_tmax = sum(tmax_match_status == "raw_only"),
+  homogenised_only_tmax = sum(tmax_match_status == "homogenised_only"),
+  missing_both_tmax = sum(tmax_match_status == "missing_both"),
+  matched_tmin = sum(tmin_match_status == "matched"),
+  raw_only_tmin = sum(tmin_match_status == "raw_only"),
+  homogenised_only_tmin = sum(tmin_match_status == "homogenised_only"),
+  missing_both_tmin = sum(tmin_match_status == "missing_both")
+)]
+
+matching_audit
+```
+
+```{r}
+#| label: station-matching
+
+station_matching <- comparison[, .(
+  first_date = min(date),
+  last_date = max(date),
+  matched_tmax = sum(matched_tmax),
+  raw_only_tmax = sum(tmax_match_status == "raw_only"),
+  homogenised_only_tmax = sum(tmax_match_status == "homogenised_only"),
+  matched_tmin = sum(matched_tmin),
+  raw_only_tmin = sum(tmin_match_status == "raw_only"),
+  homogenised_only_tmin = sum(tmin_match_status == "homogenised_only")
+), by = .(acorn_station_number, station_name)]
+
+station_matching[order(acorn_station_number)]
+```
+
+# Distribution of daily adjustments
+
+## Network-wide summaries
+
+```{r}
+#| label: adjustment-summary
+
+adjustment_summary <- rbindlist(list(
+  matched_tmax[, .(
+    variable = "Tmax",
+    n = .N,
+    mean = mean(tmax_adjustment),
+    sd = sd(tmax_adjustment),
+    minimum = min(tmax_adjustment),
+    q01 = quantile(tmax_adjustment, 0.01),
+    q25 = quantile(tmax_adjustment, 0.25),
+    median = median(tmax_adjustment),
+    q75 = quantile(tmax_adjustment, 0.75),
+    q99 = quantile(tmax_adjustment, 0.99),
+    maximum = max(tmax_adjustment),
+    proportion_unchanged = mean(abs(tmax_adjustment) < 1e-10)
+  )],
+  matched_tmin[, .(
+    variable = "Tmin",
+    n = .N,
+    mean = mean(tmin_adjustment),
+    sd = sd(tmin_adjustment),
+    minimum = min(tmin_adjustment),
+    q01 = quantile(tmin_adjustment, 0.01),
+    q25 = quantile(tmin_adjustment, 0.25),
+    median = median(tmin_adjustment),
+    q75 = quantile(tmin_adjustment, 0.75),
+    q99 = quantile(tmin_adjustment, 0.99),
+    maximum = max(tmin_adjustment),
+    proportion_unchanged = mean(abs(tmin_adjustment) < 1e-10)
+  )]
+))
+
+adjustment_summary
+```
+
+```{r}
+#| label: absolute-adjustments
+
+absolute_quantiles <- rbindlist(list(
+  data.table(
+    variable = "Tmax",
+    quantile = names(quantile(abs(matched_tmax$tmax_adjustment),
+      probs = c(0, .25, .5, .75, .9, .95, .99, .999, 1)
+    )),
+    absolute_adjustment = as.numeric(quantile(abs(matched_tmax$tmax_adjustment),
+      probs = c(0, .25, .5, .75, .9, .95, .99, .999, 1)
+    ))
+  ),
+  data.table(
+    variable = "Tmin",
+    quantile = names(quantile(abs(matched_tmin$tmin_adjustment),
+      probs = c(0, .25, .5, .75, .9, .95, .99, .999, 1)
+    )),
+    absolute_adjustment = as.numeric(quantile(abs(matched_tmin$tmin_adjustment),
+      probs = c(0, .25, .5, .75, .9, .95, .99, .999, 1)
+    ))
+  )
+))
+
+absolute_quantiles
+```
+
+## Histograms
+
+The full distributions contain a small number of very large adjustments. The main histograms therefore show the central 99.8% of values, while the complete extremes are tabulated separately.
+
+```{r}
+#| label: adjustment-histograms
+#| fig-width: 10
+#| fig-height: 4.5
+
+plot_tmax <- matched_tmax[
+  between(tmax_adjustment,
+          quantile(tmax_adjustment, 0.001),
+          quantile(tmax_adjustment, 0.999))
+]
+
+plot_tmin <- matched_tmin[
+  between(tmin_adjustment,
+          quantile(tmin_adjustment, 0.001),
+          quantile(tmin_adjustment, 0.999))
+]
+
+p1 <- ggplot(plot_tmax, aes(tmax_adjustment)) +
+  geom_histogram(binwidth = 0.1, boundary = 0, colour = "white") +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(
+    title = "Daily Tmax adjustment",
+    subtitle = "Central 99.8% of matched observations",
+    x = "Homogenised minus raw (°C)", y = "Station-days"
+  )
+
+p2 <- ggplot(plot_tmin, aes(tmin_adjustment)) +
+  geom_histogram(binwidth = 0.1, boundary = 0, colour = "white") +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(
+    title = "Daily Tmin adjustment",
+    subtitle = "Central 99.8% of matched observations",
+    x = "Homogenised minus raw (°C)", y = "Station-days"
+  )
+
+if (requireNamespace("patchwork", quietly = TRUE)) {
+  p1 + p2
+} else {
+  print(p1)
+  print(p2)
+}
+```
+
+## Largest daily adjustments
+
+```{r}
+#| label: largest-adjustments
+
+largest_tmax <- matched_tmax[
+  order(-abs(tmax_adjustment))
+][1:30, .(
+  acorn_station_number, station_name, date,
+  source_station_number, tmax_raw, tmax_hom, tmax_adjustment
+)]
+
+largest_tmin <- matched_tmin[
+  order(-abs(tmin_adjustment))
+][1:30, .(
+  acorn_station_number, station_name, date,
+  source_station_number, tmin_raw, tmin_hom, tmin_adjustment
+)]
+
+largest_tmax
+largest_tmin
+```
+
+# Variation through time and season
+
+## Annual adjustment summaries
+
+```{r}
+#| label: annual-adjustments
+
+annual_adjustments <- rbindlist(list(
+  matched_tmax[, .(
+    variable = "Tmax",
+    n = .N,
+    mean_adjustment = mean(tmax_adjustment),
+    median_adjustment = median(tmax_adjustment),
+    mean_absolute_adjustment = mean(abs(tmax_adjustment)),
+    p95_absolute_adjustment = quantile(abs(tmax_adjustment), 0.95),
+    proportion_changed = mean(abs(tmax_adjustment) > 1e-10)
+  ), by = year],
+  matched_tmin[, .(
+    variable = "Tmin",
+    n = .N,
+    mean_adjustment = mean(tmin_adjustment),
+    median_adjustment = median(tmin_adjustment),
+    mean_absolute_adjustment = mean(abs(tmin_adjustment)),
+    p95_absolute_adjustment = quantile(abs(tmin_adjustment), 0.95),
+    proportion_changed = mean(abs(tmin_adjustment) > 1e-10)
+  ), by = year]
+))
+```
+
+```{r}
+#| label: adjustment-time-series
+#| fig-width: 10
+#| fig-height: 7
+
+p_mean <- ggplot(annual_adjustments,
+                 aes(year, mean_adjustment, colour = variable)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_line(linewidth = 0.6) +
+  labs(
+    title = "Mean daily adjustment by year",
+    x = NULL, y = "Homogenised minus raw (°C)", colour = NULL
+  )
+
+p_abs <- ggplot(annual_adjustments,
+                aes(year, mean_absolute_adjustment, colour = variable)) +
+  geom_line(linewidth = 0.6) +
+  labs(
+    title = "Mean absolute daily adjustment by year",
+    x = "Year", y = "Absolute adjustment (°C)", colour = NULL
+  )
+
+if (requireNamespace("patchwork", quietly = TRUE)) {
+  p_mean / p_abs
+} else {
+  print(p_mean)
+  print(p_abs)
+}
+```
+
+## Seasonal adjustment summaries
+
+```{r}
+#| label: seasonal-adjustments
+
+seasonal_adjustments <- rbindlist(list(
+  matched_tmax[, .(
+    variable = "Tmax",
+    n = .N,
+    mean_adjustment = mean(tmax_adjustment),
+    median_adjustment = median(tmax_adjustment),
+    mean_absolute_adjustment = mean(abs(tmax_adjustment)),
+    p95_absolute_adjustment = quantile(abs(tmax_adjustment), 0.95)
+  ), by = season],
+  matched_tmin[, .(
+    variable = "Tmin",
+    n = .N,
+    mean_adjustment = mean(tmin_adjustment),
+    median_adjustment = median(tmin_adjustment),
+    mean_absolute_adjustment = mean(abs(tmin_adjustment)),
+    p95_absolute_adjustment = quantile(abs(tmin_adjustment), 0.95)
+  ), by = season]
+))
+
+seasonal_adjustments
+```
+
+# Does adjustment depend on raw temperature?
+
+Raw temperatures are classified within station and calendar month so that tropical, temperate and alpine sites are compared on a locally meaningful scale.
+
+```{r}
+#| label: raw-temperature-quantiles
+
+matched_tmax[, raw_percentile := frank(tmax_raw, ties.method = "average") / .N,
+             by = .(acorn_station_number, month)]
+matched_tmin[, raw_percentile := frank(tmin_raw, ties.method = "average") / .N,
+             by = .(acorn_station_number, month)]
+
+matched_tmax[, temperature_band := cut(
+  raw_percentile,
+  breaks = c(0, .01, .05, .25, .75, .95, .99, 1),
+  include.lowest = TRUE,
+  labels = c("0–1%", "1–5%", "5–25%", "25–75%", "75–95%", "95–99%", "99–100%")
+)]
+
+matched_tmin[, temperature_band := cut(
+  raw_percentile,
+  breaks = c(0, .01, .05, .25, .75, .95, .99, 1),
+  include.lowest = TRUE,
+  labels = c("0–1%", "1–5%", "5–25%", "25–75%", "75–95%", "95–99%", "99–100%")
+)]
+
+adjustment_by_raw_quantile <- rbindlist(list(
+  matched_tmax[, .(
+    variable = "Tmax",
+    n = .N,
+    mean_adjustment = mean(tmax_adjustment),
+    median_adjustment = median(tmax_adjustment),
+    mean_absolute_adjustment = mean(abs(tmax_adjustment)),
+    p95_absolute_adjustment = quantile(abs(tmax_adjustment), 0.95)
+  ), by = temperature_band],
+  matched_tmin[, .(
+    variable = "Tmin",
+    n = .N,
+    mean_adjustment = mean(tmin_adjustment),
+    median_adjustment = median(tmin_adjustment),
+    mean_absolute_adjustment = mean(abs(tmin_adjustment)),
+    p95_absolute_adjustment = quantile(abs(tmin_adjustment), 0.95)
+  ), by = temperature_band]
+))
+
+adjustment_by_raw_quantile
+```
+
+```{r}
+#| label: adjustment-tail-plot
+#| fig-width: 9
+#| fig-height: 5
+
+ggplot(adjustment_by_raw_quantile,
+       aes(temperature_band, mean_absolute_adjustment,
+           colour = variable, group = variable)) +
+  geom_point(size = 2) +
+  geom_line() +
+  labs(
+    title = "Adjustment magnitude across the raw temperature distribution",
+    x = "Within-station, calendar-month raw temperature percentile band",
+    y = "Mean absolute adjustment (°C)", colour = NULL
+  ) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+# Annual extremes and records
+
+## Annual extreme statistics
+
+```{r}
+#| label: annual-extremes
+
+annual_extremes <- comparison[, .(
+  raw_annual_max_tmax = if (all(is.na(tmax_raw))) NA_real_ else max(tmax_raw, na.rm = TRUE),
+  hom_annual_max_tmax = if (all(is.na(tmax_hom))) NA_real_ else max(tmax_hom, na.rm = TRUE),
+  raw_annual_min_tmin = if (all(is.na(tmin_raw))) NA_real_ else min(tmin_raw, na.rm = TRUE),
+  hom_annual_min_tmin = if (all(is.na(tmin_hom))) NA_real_ else min(tmin_hom, na.rm = TRUE),
+  n_raw_tmax = sum(!is.na(tmax_raw)),
+  n_hom_tmax = sum(!is.na(tmax_hom)),
+  n_raw_tmin = sum(!is.na(tmin_raw)),
+  n_hom_tmin = sum(!is.na(tmin_hom))
+), by = .(acorn_station_number, station_name, year)]
+
+annual_extremes[, `:=`(
+  annual_max_tmax_difference = hom_annual_max_tmax - raw_annual_max_tmax,
+  annual_min_tmin_difference = hom_annual_min_tmin - raw_annual_min_tmin
+)]
+
+annual_extreme_summary <- rbindlist(list(
+  annual_extremes[!is.na(annual_max_tmax_difference), .(
+    statistic = "Annual maximum Tmax",
+    n_station_years = .N,
+    mean_difference = mean(annual_max_tmax_difference),
+    median_difference = median(annual_max_tmax_difference),
+    q05 = quantile(annual_max_tmax_difference, .05),
+    q95 = quantile(annual_max_tmax_difference, .95),
+    maximum_absolute_difference = max(abs(annual_max_tmax_difference)),
+    proportion_changed = mean(abs(annual_max_tmax_difference) > 1e-10)
+  )],
+  annual_extremes[!is.na(annual_min_tmin_difference), .(
+    statistic = "Annual minimum Tmin",
+    n_station_years = .N,
+    mean_difference = mean(annual_min_tmin_difference),
+    median_difference = median(annual_min_tmin_difference),
+    q05 = quantile(annual_min_tmin_difference, .05),
+    q95 = quantile(annual_min_tmin_difference, .95),
+    maximum_absolute_difference = max(abs(annual_min_tmin_difference)),
+    proportion_changed = mean(abs(annual_min_tmin_difference) > 1e-10)
+  )]
+))
+
+annual_extreme_summary
+```
+
+## Record identity
+
+This comparison asks whether raw and homogenised streams identify the same date as the station record. Ties are retained.
+
+```{r}
+#| label: record-comparison
+
+raw_tmax_records <- comparison[!is.na(tmax_raw),
+  .SD[tmax_raw == max(tmax_raw)],
+  by = .(acorn_station_number, station_name)
+][, .(acorn_station_number, raw_record_date = date, raw_record_tmax = tmax_raw)]
+
+hom_tmax_records <- comparison[!is.na(tmax_hom),
+  .SD[tmax_hom == max(tmax_hom)],
+  by = .(acorn_station_number, station_name)
+][, .(acorn_station_number, hom_record_date = date, hom_record_tmax = tmax_hom)]
+
+record_date_overlap <- merge(
+  raw_tmax_records,
+  hom_tmax_records,
+  by = "acorn_station_number",
+  allow.cartesian = TRUE
+)[, .(
+  same_record_date = any(raw_record_date == hom_record_date),
+  raw_record_tmax = max(raw_record_tmax),
+  hom_record_tmax = max(hom_record_tmax)
+), by = acorn_station_number]
+
+record_date_overlap[, .(
+  stations = .N,
+  same_record_date = sum(same_record_date),
+  different_record_date = sum(!same_record_date)
+)]
+```
+
+# Paired trend sensitivity
+
+Annual extremes are used for the initial paired trend comparison. A station requires at least 30 years with both raw and homogenised annual statistics.
+
+```{r}
+#| label: trend-functions
+
+fit_paired_trends <- function(data, raw_column, hom_column, minimum_years = 30L) {
+  raw_column <- substitute(raw_column)
+  hom_column <- substitute(hom_column)
+
+  data[, {
+    raw_value <- eval(raw_column)
+    hom_value <- eval(hom_column)
+    keep <- !is.na(raw_value) & !is.na(hom_value)
+
+    if (sum(keep) < minimum_years) {
+      list(
+        n_years = sum(keep),
+        raw_slope_per_decade = NA_real_,
+        hom_slope_per_decade = NA_real_,
+        slope_difference_per_decade = NA_real_
+      )
+    } else {
+      raw_fit <- lm(raw_value[keep] ~ year[keep])
+      hom_fit <- lm(hom_value[keep] ~ year[keep])
+      raw_slope <- unname(coef(raw_fit)[2]) * 10
+      hom_slope <- unname(coef(hom_fit)[2]) * 10
+
+      list(
+        n_years = sum(keep),
+        raw_slope_per_decade = raw_slope,
+        hom_slope_per_decade = hom_slope,
+        slope_difference_per_decade = hom_slope - raw_slope
+      )
+    }
+  }, by = .(acorn_station_number, station_name)]
+}
+
+trend_tmax <- fit_paired_trends(
+  annual_extremes,
+  raw_annual_max_tmax,
+  hom_annual_max_tmax
+)
+
+trend_tmin <- fit_paired_trends(
+  annual_extremes,
+  raw_annual_min_tmin,
+  hom_annual_min_tmin
+)
+```
+
+```{r}
+#| label: trend-summary
+
+trend_summary <- rbindlist(list(
+  trend_tmax[!is.na(slope_difference_per_decade), .(
+    statistic = "Annual maximum Tmax",
+    stations = .N,
+    median_raw_slope = median(raw_slope_per_decade),
+    median_hom_slope = median(hom_slope_per_decade),
+    median_slope_difference = median(slope_difference_per_decade),
+    q05_slope_difference = quantile(slope_difference_per_decade, .05),
+    q95_slope_difference = quantile(slope_difference_per_decade, .95)
+  )],
+  trend_tmin[!is.na(slope_difference_per_decade), .(
+    statistic = "Annual minimum Tmin",
+    stations = .N,
+    median_raw_slope = median(raw_slope_per_decade),
+    median_hom_slope = median(hom_slope_per_decade),
+    median_slope_difference = median(slope_difference_per_decade),
+    q05_slope_difference = quantile(slope_difference_per_decade, .05),
+    q95_slope_difference = quantile(slope_difference_per_decade, .95)
+  )]
+))
+
+trend_summary
+```
+
+```{r}
+#| label: trend-plot
+#| fig-width: 9
+#| fig-height: 5
+
+trend_plot_data <- rbindlist(list(
+  trend_tmax[, .(
+    statistic = "Annual maximum Tmax",
+    slope_difference_per_decade
+  )],
+  trend_tmin[, .(
+    statistic = "Annual minimum Tmin",
+    slope_difference_per_decade
+  )]
+), use.names = TRUE)
+
+trend_plot_data <- trend_plot_data[!is.na(slope_difference_per_decade)]
+
+ggplot(trend_plot_data,
+       aes(slope_difference_per_decade, fill = statistic)) +
+  geom_histogram(bins = 30, alpha = 0.6, position = "identity") +
+  geom_vline(xintercept = 0, linetype = 2) +
+  facet_wrap(~ statistic, scales = "free_y") +
+  guides(fill = "none") +
+  labs(
+    title = "Change in estimated linear trend after homogenisation",
+    subtitle = "Homogenised slope minus raw slope",
+    x = "Slope difference (°C per decade)", y = "Stations"
+  )
+```
+
+# Station-level adjustment summaries
+
+```{r}
+#| label: station-adjustment-summary
+
+station_adjustments <- comparison[, .(
+  matched_tmax = sum(matched_tmax),
+  mean_tmax_adjustment = mean(tmax_adjustment, na.rm = TRUE),
+  median_tmax_adjustment = median(tmax_adjustment, na.rm = TRUE),
+  sd_tmax_adjustment = sd(tmax_adjustment, na.rm = TRUE),
+  max_abs_tmax_adjustment = max(abs(tmax_adjustment), na.rm = TRUE),
+  proportion_tmax_changed = mean(abs(tmax_adjustment) > 1e-10, na.rm = TRUE),
+  matched_tmin = sum(matched_tmin),
+  mean_tmin_adjustment = mean(tmin_adjustment, na.rm = TRUE),
+  median_tmin_adjustment = median(tmin_adjustment, na.rm = TRUE),
+  sd_tmin_adjustment = sd(tmin_adjustment, na.rm = TRUE),
+  max_abs_tmin_adjustment = max(abs(tmin_adjustment), na.rm = TRUE),
+  proportion_tmin_changed = mean(abs(tmin_adjustment) > 1e-10, na.rm = TRUE)
+), by = .(acorn_station_number, station_name)]
+
+station_adjustments[order(-abs(mean_tmax_adjustment))]
+station_adjustments[order(-abs(mean_tmin_adjustment))]
+```
+
+# Reproducible output tables
+
+```{r}
+#| label: save-output-tables
+
+output_dir <- file.path(project_root, "tables", "raw_vs_homogenised")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+fwrite(network_summary, file.path(output_dir, "network_summary.csv"))
+fwrite(matching_audit, file.path(output_dir, "matching_audit.csv"))
+fwrite(adjustment_summary, file.path(output_dir, "adjustment_summary.csv"))
+fwrite(absolute_quantiles, file.path(output_dir, "absolute_adjustment_quantiles.csv"))
+fwrite(seasonal_adjustments, file.path(output_dir, "seasonal_adjustments.csv"))
+fwrite(adjustment_by_raw_quantile, file.path(output_dir, "adjustments_by_raw_temperature_quantile.csv"))
+fwrite(annual_extreme_summary, file.path(output_dir, "annual_extreme_summary.csv"))
+fwrite(trend_summary, file.path(output_dir, "trend_summary.csv"))
+fwrite(station_adjustments, file.path(output_dir, "station_adjustment_summary.csv"))
+fwrite(largest_tmax, file.path(output_dir, "largest_tmax_adjustments.csv"))
+fwrite(largest_tmin, file.path(output_dir, "largest_tmin_adjustments.csv"))
+```
+
+# Interpretation framework
+
+The report should be interpreted in the following order:
+
+1. **Coverage:** determine whether raw and homogenised records are being compared over the same station-days.
+2. **Central adjustments:** quantify typical adjustment direction and magnitude.
+3. **Tail adjustments:** inspect the rare large corrections separately from the bulk distribution.
+4. **Temperature dependence:** test whether adjustment magnitude changes systematically towards hot or cold tails.
+5. **Extreme statistics:** quantify whether annual maxima, annual minima and record identities change.
+6. **Trend sensitivity:** compare raw and homogenised trends using identical paired years.
+7. **Spatial dependence:** undertake only after the marginal and trend effects above are understood.
+
+# Limitations and next analysis
+
+This initial report uses linear trends in annual extremes as a transparent baseline, not as the final model of climate non-stationarity. Subsequent analysis should examine threshold exceedance rates, persistence, changepoints, non-stationary extreme-value models and raw-versus-homogenised spatial tail dependence.
+
+The largest individual daily adjustments should also be cross-referenced against the ACORN adjustment-summary and transfer-function metadata before being characterised as unusual or erroneous.

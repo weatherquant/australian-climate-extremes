@@ -1,0 +1,3 @@
+statistic,n_station_years,mean_difference,median_difference,q05,q95,maximum_absolute_difference,proportion_changed
+Annual maximum Tmax,10804,0.0105053683820807,0,-1.59999999999999,1.6,9.6,0.745186967789708
+Annual minimum Tmin,10796,-0.526630233419785,-0.2,-2.8,1,15.1,0.756576509818451

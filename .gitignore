@@ -36,3 +36,5 @@ Thumbs.db
 # Keep README placeholders
 !/data-raw/**/README.md
 !/data-derived/**/README.md
+
+/.quarto/
