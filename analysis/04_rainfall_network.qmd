@@ -1,0 +1,906 @@
+---
+title: "Australian Daily Rainfall Network"
+subtitle: "Availability, completeness and selection of a defensible long-record observing network"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Purpose
+
+This report evaluates the Australian daily rainfall observing archive before any trend or extreme-value analysis is undertaken. The aim is to identify a temporally consistent and statistically defensible station network rather than selecting an analysis period or completeness threshold a priori.
+
+The underlying ADAM `PRCP_DAYS` extraction contains more than 300 million station-day records. This report operates only on the derived station-year summaries, so the full daily archive is not loaded into memory.
+
+The analysis addresses five questions:
+
+1. How has the available rainfall network changed since 1900?
+2. How complete are station-year records through time?
+3. How large are candidate long-record networks under different completeness requirements?
+4. How common are multi-day or non-standard rainfall records that may complicate daily-extreme analysis?
+5. Which common analysis periods provide the best trade-off between record length and network stability?
+
+The current 2026 record is incomplete because the source extraction ends on 3 November 2026. Unless explicitly stated otherwise, network-selection diagnostics therefore end in 2025.
+
+# Setup
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(arrow)
+library(ggplot2)
+library(scales)
+
+project_root <- if (file.exists("_targets.R")) {
+  "."
+} else if (file.exists("../_targets.R")) {
+  ".."
+} else {
+  stop("Could not locate project root containing _targets.R.", call. = FALSE)
+}
+
+summary_dir <- file.path(
+  project_root,
+  "data-derived",
+  "rainfall",
+  "summaries"
+)
+
+station_year_file <- file.path(
+  summary_dir,
+  "adam_rainfall_station_year_1900_2026.parquet"
+)
+
+network_year_file <- file.path(
+  summary_dir,
+  "adam_rainfall_network_by_year.csv"
+)
+
+station_summary_file <- file.path(
+  summary_dir,
+  "adam_rainfall_station_summary.csv"
+)
+
+candidate_file <- file.path(
+  summary_dir,
+  "adam_rainfall_candidate_networks.csv"
+)
+
+required_files <- c(
+  station_year_file,
+  network_year_file,
+  station_summary_file,
+  candidate_file
+)
+
+missing_files <- required_files[!file.exists(required_files)]
+
+if (length(missing_files) > 0L) {
+  stop(
+    "Required rainfall summary files are missing:\n",
+    paste(missing_files, collapse = "\n"),
+    call. = FALSE
+  )
+}
+
+station_year <- as.data.table(read_parquet(station_year_file))
+network_year <- fread(network_year_file)
+station_summary <- fread(station_summary_file)
+candidate_networks <- fread(candidate_file)
+
+# Complete years only for selection diagnostics.
+station_year_complete <- station_year[year <= 2025]
+network_year_complete <- network_year[year <= 2025]
+
+theme_set(theme_minimal(base_size = 11))
+```
+
+# Archive overview
+
+```{r}
+#| label: archive-overview
+
+overview <- data.table(
+  metric = c(
+    "Station-years",
+    "Unique station numbers",
+    "First year",
+    "Last complete year",
+    "Current partial year",
+    "Median station-year completeness",
+    "25th percentile completeness"
+  ),
+  value = c(
+    format(nrow(station_year), big.mark = ","),
+    format(uniqueN(station_year$station_number), big.mark = ","),
+    min(station_year$year),
+    2025,
+    2026,
+    percent(median(station_year_complete$completeness, na.rm = TRUE), accuracy = 0.1),
+    percent(quantile(station_year_complete$completeness, 0.25, na.rm = TRUE), accuracy = 0.1)
+  )
+)
+
+overview
+```
+
+The completeness metric is
+
+$$
+C_{s,y}=\frac{n_{s,y}^{\mathrm{observed}}}{n_y^{\mathrm{calendar}}},
+$$
+
+where the denominator is 365 or 366 days for a complete calendar year. Missing rainfall is not converted to zero rainfall.
+
+# Evolution of the observing network
+
+## Stations through time
+
+```{r}
+#| label: network-long
+
+network_long <- melt(
+  network_year_complete,
+  id.vars = "year",
+  measure.vars = c(
+    "stations_with_observations",
+    "stations_80pct",
+    "stations_90pct",
+    "stations_95pct",
+    "stations_99pct"
+  ),
+  variable.name = "criterion",
+  value.name = "stations"
+)
+
+network_long[, criterion := factor(
+  criterion,
+  levels = c(
+    "stations_with_observations",
+    "stations_80pct",
+    "stations_90pct",
+    "stations_95pct",
+    "stations_99pct"
+  ),
+  labels = c(
+    "Any observations",
+    "≥80% complete",
+    "≥90% complete",
+    "≥95% complete",
+    "≥99% complete"
+  )
+)]
+```
+
+```{r}
+#| label: fig-network-through-time
+#| fig-width: 10
+#| fig-height: 5.5
+
+ggplot(network_long, aes(year, stations, colour = criterion)) +
+  geom_line(linewidth = 0.75) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Australian daily rainfall station network through time",
+    subtitle = "2026 excluded because the current extraction is incomplete",
+    x = "Year",
+    y = "Number of stations",
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+## Selected benchmark years
+
+```{r}
+#| label: benchmark-years
+
+benchmark_years <- c(
+  1900L, 1910L, 1920L, 1930L, 1940L, 1950L,
+  1960L, 1970L, 1980L, 1990L, 2000L, 2010L,
+  2020L, 2025L
+)
+
+network_year_complete[
+  year %in% benchmark_years,
+  .(
+    year,
+    stations_with_observations,
+    stations_80pct,
+    stations_90pct,
+    stations_95pct,
+    stations_99pct,
+    median_completeness,
+    mean_completeness
+  )
+]
+```
+
+# Station-year completeness
+
+## Distribution by decade
+
+```{r}
+#| label: completeness-by-decade
+
+station_year_complete[, decade := floor(year / 10) * 10L]
+
+decade_completeness <- station_year_complete[, .(
+  station_years = .N,
+  stations = uniqueN(station_number),
+  q10 = quantile(completeness, 0.10, na.rm = TRUE),
+  q25 = quantile(completeness, 0.25, na.rm = TRUE),
+  median = median(completeness, na.rm = TRUE),
+  mean = mean(completeness, na.rm = TRUE),
+  q75 = quantile(completeness, 0.75, na.rm = TRUE),
+  q90 = quantile(completeness, 0.90, na.rm = TRUE)
+), by = decade]
+
+decade_completeness
+```
+
+```{r}
+#| label: fig-completeness-boxplot
+#| fig-width: 11
+#| fig-height: 5.5
+
+# Plotting all station-years is feasible, but sampling gives a lighter
+# HTML while retaining the distributional pattern.
+set.seed(1)
+plot_completeness <- station_year_complete[
+  ,.SD[sample(.N, min(.N, 2500L))],
+  by = decade
+]
+
+ggplot(
+  plot_completeness,
+  aes(factor(decade), completeness)
+) +
+  geom_boxplot(outlier.alpha = 0.08, width = 0.7) +
+  geom_hline(yintercept = 0.95, linetype = 2) +
+  scale_y_continuous(
+    labels = percent_format(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  labs(
+    title = "Distribution of annual rainfall completeness by decade",
+    subtitle = "Dashed line marks 95% completeness",
+    x = "Decade",
+    y = "Observed fraction of calendar days"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Fraction of station-years meeting common thresholds
+
+```{r}
+#| label: threshold-fractions
+
+threshold_fraction <- station_year_complete[, .(
+  station_years = .N,
+  fraction_80 = mean(completeness >= 0.80, na.rm = TRUE),
+  fraction_90 = mean(completeness >= 0.90, na.rm = TRUE),
+  fraction_95 = mean(completeness >= 0.95, na.rm = TRUE),
+  fraction_99 = mean(completeness >= 0.99, na.rm = TRUE)
+), by = year]
+
+threshold_fraction_long <- melt(
+  threshold_fraction,
+  id.vars = c("year", "station_years"),
+  measure.vars = c("fraction_80", "fraction_90", "fraction_95", "fraction_99"),
+  variable.name = "criterion",
+  value.name = "fraction"
+)
+
+threshold_fraction_long[, criterion := factor(
+  criterion,
+  levels = c("fraction_80", "fraction_90", "fraction_95", "fraction_99"),
+  labels = c("≥80%", "≥90%", "≥95%", "≥99%")
+)]
+```
+
+```{r}
+#| label: fig-threshold-fractions
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(threshold_fraction_long, aes(year, fraction, colour = criterion)) +
+  geom_line(linewidth = 0.75) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "Fraction of station-years meeting completeness thresholds",
+    x = "Year",
+    y = "Fraction of station-years",
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# Record lengths
+
+## Complete-year record distributions
+
+```{r}
+#| label: record-length-summary
+
+record_length_summary <- rbindlist(list(
+  station_summary[, .(
+    criterion = "≥80%",
+    q10_years = quantile(years_80pct, .10),
+    median_years = median(years_80pct),
+    q90_years = quantile(years_80pct, .90),
+    stations_30yr = sum(years_80pct >= 30),
+    stations_50yr = sum(years_80pct >= 50),
+    stations_70yr = sum(years_80pct >= 70),
+    stations_100yr = sum(years_80pct >= 100)
+  )],
+  station_summary[, .(
+    criterion = "≥90%",
+    q10_years = quantile(years_90pct, .10),
+    median_years = median(years_90pct),
+    q90_years = quantile(years_90pct, .90),
+    stations_30yr = sum(years_90pct >= 30),
+    stations_50yr = sum(years_90pct >= 50),
+    stations_70yr = sum(years_90pct >= 70),
+    stations_100yr = sum(years_90pct >= 100)
+  )],
+  station_summary[, .(
+    criterion = "≥95%",
+    q10_years = quantile(years_95pct, .10),
+    median_years = median(years_95pct),
+    q90_years = quantile(years_95pct, .90),
+    stations_30yr = sum(years_95pct >= 30),
+    stations_50yr = sum(years_95pct >= 50),
+    stations_70yr = sum(years_95pct >= 70),
+    stations_100yr = sum(years_95pct >= 100)
+  )],
+  station_summary[, .(
+    criterion = "≥99%",
+    q10_years = quantile(years_99pct, .10),
+    median_years = median(years_99pct),
+    q90_years = quantile(years_99pct, .90),
+    stations_30yr = sum(years_99pct >= 30),
+    stations_50yr = sum(years_99pct >= 50),
+    stations_70yr = sum(years_99pct >= 70),
+    stations_100yr = sum(years_99pct >= 100)
+  )]
+))
+
+record_length_summary
+```
+
+```{r}
+#| label: fig-record-length
+#| fig-width: 9
+#| fig-height: 5
+
+ggplot(
+  station_summary,
+  aes(years_95pct)
+) +
+  geom_histogram(binwidth = 5, boundary = 0) +
+  labs(
+    title = "Number of years with ≥95% daily rainfall completeness",
+    x = "Qualifying years per station",
+    y = "Stations"
+  )
+```
+
+# Multi-day and non-standard rainfall records
+
+Daily extreme-rainfall analysis can be distorted when a multi-day accumulation is attached to one database date. These records are therefore diagnosed separately before defining the valid extreme-value dataset.
+
+```{r}
+#| label: accumulation-summary
+
+accumulation_year <- network_year_complete[, .(
+  year,
+  station_years_with_multiday,
+  multiday_records,
+  station_years_with_nonstandard_period,
+  nonstandard_period_records
+)]
+
+accumulation_year
+```
+
+```{r}
+#| label: fig-accumulations
+#| fig-width: 10
+#| fig-height: 7
+
+accumulation_long <- melt(
+  accumulation_year,
+  id.vars = "year",
+  measure.vars = c(
+    "multiday_records",
+    "nonstandard_period_records"
+  ),
+  variable.name = "record_type",
+  value.name = "records"
+)
+
+accumulation_long[, record_type := factor(
+  record_type,
+  levels = c("multiday_records", "nonstandard_period_records"),
+  labels = c("Multi-day records", "Non-standard period records")
+)]
+
+ggplot(accumulation_long, aes(year, records, colour = record_type)) +
+  geom_line(linewidth = 0.75) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Potentially non-standard daily rainfall records through time",
+    subtitle = "Diagnostic only; no records are removed in this report",
+    x = "Year",
+    y = "Records",
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+#| label: accumulation-rate
+
+accumulation_rate <- station_year_complete[, .(
+  observed_days = sum(n_observed),
+  multiday_records = sum(n_multiday),
+  nonstandard_period_records = sum(n_nonstandard_period),
+  multiday_per_million_observations =
+    1e6 * sum(n_multiday) / sum(n_observed),
+  nonstandard_per_million_observations =
+    1e6 * sum(n_nonstandard_period) / sum(n_observed)
+)]
+
+accumulation_rate
+```
+
+# Candidate networks without a common period
+
+The existing record-length diagnostic counts qualifying years wherever they occur in a station history. This is useful for describing the archive, but it is not sufficient for climate-trend network selection because qualifying years may be discontinuous.
+
+```{r}
+#| label: candidate-existing
+
+candidate_networks
+```
+
+# Common-period network analysis
+
+A defensible trend network should have high completeness over a common interval. Candidate periods are therefore evaluated using only station-years within each interval.
+
+The within-year requirement is initially set to **95% daily completeness**. For each candidate period, stations are then required to satisfy that annual criterion in at least 80%, 90%, or 95% of the years in the common period.
+
+```{r}
+#| label: common-period-function
+
+assess_common_period <- function(
+    station_year_data,
+    start_year,
+    end_year = 2025L,
+    annual_completeness = 0.95,
+    required_year_fraction = c(0.80, 0.90, 0.95)) {
+
+  period <- station_year_data[
+    year >= start_year & year <= end_year
+  ]
+
+  expected_years <- end_year - start_year + 1L
+
+  station_period <- period[, .(
+    years_present = uniqueN(year),
+    qualifying_years = sum(completeness >= annual_completeness, na.rm = TRUE),
+    mean_completeness = mean(completeness, na.rm = TRUE),
+    median_completeness = median(completeness, na.rm = TRUE)
+  ), by = station_number]
+
+  station_period[, qualifying_fraction := qualifying_years / expected_years]
+
+  result <- data.table(
+    start_year = start_year,
+    end_year = end_year,
+    period_years = expected_years,
+    annual_completeness = annual_completeness,
+    required_year_fraction = required_year_fraction
+  )
+
+  result[, required_years := ceiling(period_years * required_year_fraction)]
+
+  result[, stations := vapply(
+    required_year_fraction,
+    function(x) sum(station_period$qualifying_fraction >= x),
+    integer(1)
+  )]
+
+  result
+}
+```
+
+```{r}
+#| label: common-period-table
+
+candidate_start_years <- c(
+  1910L,
+  1930L,
+  1950L,
+  1960L,
+  1970L,
+  1980L
+)
+
+common_period_results <- rbindlist(
+  lapply(
+    candidate_start_years,
+    function(start_year) {
+      assess_common_period(
+        station_year_data = station_year_complete,
+        start_year = start_year,
+        end_year = 2025L,
+        annual_completeness = 0.95,
+        required_year_fraction = c(0.80, 0.90, 0.95)
+      )
+    }
+  )
+)
+
+common_period_results
+```
+
+```{r}
+#| label: common-period-wide
+
+common_period_wide <- dcast(
+  common_period_results,
+  start_year + end_year + period_years + annual_completeness ~ required_year_fraction,
+  value.var = "stations"
+)
+
+setnames(
+  common_period_wide,
+  old = c("0.8", "0.9", "0.95"),
+  new = c(
+    "stations_80pct_of_years",
+    "stations_90pct_of_years",
+    "stations_95pct_of_years"
+  ),
+  skip_absent = TRUE
+)
+
+common_period_wide
+```
+
+```{r}
+#| label: fig-common-periods
+#| fig-width: 9
+#| fig-height: 5.5
+
+common_period_plot <- copy(common_period_results)
+common_period_plot[, criterion := factor(
+  required_year_fraction,
+  levels = c(.80, .90, .95),
+  labels = c("≥80% of years", "≥90% of years", "≥95% of years")
+)]
+
+ggplot(
+  common_period_plot,
+  aes(factor(start_year), stations, colour = criterion, group = criterion)
+) +
+  geom_point(size = 2.5) +
+  geom_line() +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Network size for common analysis periods ending in 2025",
+    subtitle = "Each qualifying station-year has ≥95% daily completeness",
+    x = "Start year",
+    y = "Qualifying stations",
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# Network continuity diagnostics
+
+The number of qualifying years does not show whether missing years occur as isolated gaps or long discontinuities. The following diagnostic identifies the longest run of station-years meeting the 95% annual-completeness criterion.
+
+```{r}
+#| label: longest-run-function
+
+longest_true_run <- function(year, qualifies) {
+  x <- data.table(year = year, qualifies = qualifies)
+  setorder(x, year)
+
+  all_years <- seq(min(x$year), max(x$year))
+  x <- x[data.table(year = all_years), on = "year"]
+  x[is.na(qualifies), qualifies := FALSE]
+
+  r <- rle(x$qualifies)
+
+  if (!any(r$values)) return(0L)
+
+  max(r$lengths[r$values])
+}
+```
+
+```{r}
+#| label: continuity-summary
+
+station_continuity_95 <- station_year_complete[, .(
+  first_year = min(year),
+  last_year = max(year),
+  qualifying_years_95 = sum(completeness >= 0.95, na.rm = TRUE),
+  longest_run_95 = longest_true_run(year, completeness >= 0.95)
+), by = station_number]
+
+station_continuity_summary <- station_continuity_95[, .(
+  stations = .N,
+  stations_run_30yr = sum(longest_run_95 >= 30),
+  stations_run_50yr = sum(longest_run_95 >= 50),
+  stations_run_60yr = sum(longest_run_95 >= 60),
+  stations_run_70yr = sum(longest_run_95 >= 70),
+  stations_run_80yr = sum(longest_run_95 >= 80),
+  stations_run_100yr = sum(longest_run_95 >= 100)
+)]
+
+station_continuity_summary
+```
+
+# Provisional selection framework
+
+This report deliberately does not make the final station-network decision solely from station counts. The candidate network should satisfy three conditions:
+
+1. **Temporal completeness:** high daily completeness within qualifying station-years.
+2. **Common-period consistency:** high coverage across a shared climate-analysis interval rather than merely many good years scattered through the record.
+3. **Spatial representativeness:** adequate coverage across Australian climate regions, which requires station latitude/longitude metadata and is assessed separately once metadata are joined.
+
+A plausible initial candidate for subsequent testing is **1950–2025**, with each station-year required to be at least **95% complete** and each station required to meet that annual standard in at least **90% of years**. This is a working candidate only; the common-period results above and subsequent spatial mapping determine whether it is retained.
+
+# Outputs
+
+```{r}
+#| label: write-outputs
+
+output_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_network"
+)
+
+dir.create(
+  output_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+fwrite(
+  overview,
+  file.path(output_dir, "archive_overview.csv")
+)
+
+fwrite(
+  decade_completeness,
+  file.path(output_dir, "completeness_by_decade.csv")
+)
+
+fwrite(
+  record_length_summary,
+  file.path(output_dir, "record_length_summary.csv")
+)
+
+fwrite(
+  accumulation_year,
+  file.path(output_dir, "accumulation_diagnostics_by_year.csv")
+)
+
+fwrite(
+  common_period_results,
+  file.path(output_dir, "common_period_networks.csv")
+)
+
+fwrite(
+  station_continuity_95,
+  file.path(output_dir, "station_continuity_95pct.csv")
+)
+```
+
+# Spatial comparison of candidate networks
+
+The candidate networks use a common annual rule:
+
+- annual daily-rainfall completeness of at least 95%;
+- that annual standard met in at least 90% of all years;
+- common endpoint of 2025.
+
+The candidates differ only in their starting year: 1930, 1950 or 1960.
+
+```{r}
+#| label: load-spatial-networks
+
+network_dir <- file.path(
+  project_root,
+  "data-derived",
+  "rainfall",
+  "network"
+)
+
+network_1930 <- as.data.table(
+  arrow::read_parquet(
+    file.path(
+      network_dir,
+      "network_1930_2025.parquet"
+    )
+  )
+)
+
+network_1950 <- as.data.table(
+  arrow::read_parquet(
+    file.path(
+      network_dir,
+      "network_1950_2025.parquet"
+    )
+  )
+)
+
+network_1960 <- as.data.table(
+  arrow::read_parquet(
+    file.path(
+      network_dir,
+      "network_1960_2025.parquet"
+    )
+  )
+)
+
+network_maps <- rbindlist(
+  list(
+    network_1930[
+      ,
+      candidate := "1930–2025"
+    ],
+
+    network_1950[
+      ,
+      candidate := "1950–2025"
+    ],
+
+    network_1960[
+      ,
+      candidate := "1960–2025"
+    ]
+  ),
+  use.names = TRUE,
+  fill = TRUE
+)
+```
+
+
+```{r}
+#| label: fig-candidate-network-maps
+#| fig-width: 12
+#| fig-height: 7
+
+ggplot(
+  network_maps,
+  aes(
+    longitude,
+    latitude
+  )
+) +
+  geom_point(
+    size = 0.35,
+    alpha = 0.55
+  ) +
+  coord_quickmap(
+    xlim = c(112, 154),
+    ylim = c(-44, -10)
+  ) +
+  facet_wrap(
+    ~ candidate,
+    nrow = 1
+  ) +
+  labs(
+    title =
+      "Spatial coverage of candidate long-record rainfall networks",
+
+    subtitle =
+      "Station-year completeness ≥95% in at least 90% of common-period years",
+
+    x =
+      "Longitude",
+
+    y =
+      "Latitude"
+  )
+```
+
+
+```{r}
+#| label: fig-nearest-neighbour
+#| fig-width: 9
+#| fig-height: 5
+
+ggplot(
+  network_maps,
+  aes(
+    nearest_neighbour_km,
+    colour = candidate,
+    fill = candidate
+  )
+) +
+  geom_density(
+    alpha = 0.15,
+    linewidth = 0.7,
+    na.rm = TRUE
+  ) +
+  coord_cartesian(
+    xlim = c(
+      0,
+      quantile(
+        network_maps$nearest_neighbour_km,
+        0.99,
+        na.rm = TRUE
+      )
+    )
+  ) +
+  labs(
+    title =
+      "Nearest-neighbour spacing in candidate networks",
+
+    subtitle =
+      "Distances calculated in Australian Albers, EPSG:3577",
+
+    x =
+      "Nearest selected station (km)",
+
+    y =
+      "Density",
+
+    colour =
+      NULL,
+
+    fill =
+      NULL
+  ) +
+  theme(
+    legend.position = "bottom"
+  )
+```
+
+
+```{r}
+#| label: candidate-state-counts
+
+candidate_state_counts <- network_maps[
+  ,
+  .(
+    stations = .N,
+    open = sum(station_open, na.rm = TRUE),
+    closed = sum(!station_open, na.rm = TRUE),
+    missing_elevation =
+      sum(is.na(elevation_m))
+  ),
+  by = .(
+    candidate,
+    state
+  )
+]
+
+candidate_state_counts[
+  order(
+    candidate,
+    state
+  )
+]
+```
+

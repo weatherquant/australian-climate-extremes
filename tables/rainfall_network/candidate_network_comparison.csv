@@ -1,0 +1,4 @@
+start_year,end_year,period_years,required_years,annual_completeness_threshold,required_year_fraction,temporally_selected_stations,spatially_valid_stations,selected_without_valid_coordinates,currently_open,closed,missing_elevation,minimum_latitude,maximum_latitude,minimum_longitude,maximum_longitude,median_elevation_m,q10_elevation_m,q90_elevation_m,stations,median_nearest_neighbour_km,q10_nearest_neighbour_km,q90_nearest_neighbour_km,maximum_nearest_neighbour_km
+1930,2025,96,87,0.95,0.9,618,618,0,583,35,0,-43.6578,-12.1892,96.8344,167.9408,219.5,41.4,511.85,618,29.6986772125437,10.6138796779559,72.1110161205196,2153.53180658378
+1950,2025,76,69,0.95,0.9,745,745,0,713,32,0,-54.4994,-12.1892,96.8344,167.9408,221,30,541.2,745,25.5034060663289,9.96643626274607,77.814323509247,2153.53180658378
+1960,2025,66,60,0.95,0.9,909,909,0,881,28,0,-54.4994,-12.1892,96.8344,167.9408,249,35.8,600,909,22.3400346437673,8.13498933254679,64.0250202706044,2207.67200570468
