@@ -1,0 +1,2 @@
+analysis_start_year,analysis_end_year,analysis_years,primary_threshold_id,primary_run_length,accepted_quality_codes,events,stations,scale_ratio,shape,convergence,maximum_gradient,hessian_positive_definite,fit_valid
+1950,2025,76,p975,3,"0,1,2,3,4",84351,742,0.386622667196837,0.14960031707862,0,,TRUE,TRUE

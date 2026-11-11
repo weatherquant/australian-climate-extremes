@@ -1,0 +1,1179 @@
+---
+title: "Rainfall POT diagnostics"
+subtitle: "Threshold, declustering and quality-control assessment for Australian extreme daily rainfall"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Purpose
+
+This report evaluates the peaks-over-threshold (POT) event datasets before non-stationary Generalized Pareto modelling. The objective is to determine whether the provisional P97.5 threshold with three-day runs declustering provides an appropriate bias-variance compromise, while retaining P95 and P99 and two- and five-day run lengths as formal sensitivities.
+
+The primary P97.5 quality-controlled dataset retains rainfall element quality codes 0 to 4. Element quality codes 6 to 9 are rejected from the primary tail analysis; code 5 is retained only in a broader sensitivity analysis. Record-level observation quality flags are not treated as direct rainfall-quality flags.
+
+# Setup
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(arrow)
+library(ggplot2)
+library(scales)
+
+project_root <- if (file.exists("_targets.R")) {
+  "."
+} else if (file.exists("../_targets.R")) {
+  ".."
+} else {
+  stop("Could not locate project root containing _targets.R.", call. = FALSE)
+}
+
+pot_dir <- file.path(project_root, "data-derived", "rainfall", "pot")
+pot_table_dir <- file.path(project_root, "tables", "rainfall_pot")
+out_dir <- file.path(project_root, "tables", "rainfall_pot_diagnostics")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+all_events_file <- file.path(
+  pot_dir,
+  "rainfall_pot_events_all_thresholds_runs_1950_2025.parquet"
+)
+
+p975_file <- file.path(
+  pot_dir,
+  "rainfall_pot_events_p975_run3_1950_2025.parquet"
+)
+
+p975_primary_file <- file.path(
+  pot_dir,
+  "rainfall_pot_events_p975_run3_primary_qc_1950_2025.parquet"
+)
+
+threshold_file <- file.path(
+  pot_dir,
+  "rainfall_pot_thresholds_1961_1990.parquet"
+)
+
+required_files <- c(all_events_file, p975_file, threshold_file)
+missing_files <- required_files[!file.exists(required_files)]
+
+if (length(missing_files) > 0L) {
+  stop(
+    "Required POT products are missing:\n",
+    paste(missing_files, collapse = "\n"),
+    call. = FALSE
+  )
+}
+
+all_events <- as.data.table(read_parquet(all_events_file))
+p975_all <- as.data.table(read_parquet(p975_file))
+thresholds <- as.data.table(read_parquet(threshold_file))
+
+if (file.exists(p975_primary_file)) {
+  p975_primary <- as.data.table(read_parquet(p975_primary_file))
+} else {
+  p975_primary <- p975_all[
+    rainfall_quality_peak %in% c(0L, 1L, 2L, 3L, 4L)
+  ]
+}
+
+p975_broad <- p975_all[
+  rainfall_quality_peak %in% c(0L, 1L, 2L, 3L, 4L, 5L)
+]
+
+# Stable plotting labels.
+all_events[, threshold_label_plot := factor(
+  threshold_id,
+  levels = c("p95", "p975", "p99"),
+  labels = c("P95", "P97.5", "P99")
+)]
+
+all_events[, run_label := factor(
+  run_length_days,
+  levels = c(2L, 3L, 5L),
+  labels = c("2-day run", "3-day run", "5-day run")
+)]
+
+theme_set(theme_minimal(base_size = 11))
+```
+
+# Dataset integrity
+
+```{r}
+#| label: integrity
+
+integrity <- data.table(
+  dataset = c("All P97.5 run-3 events", "Primary QC P97.5", "Broad QC P97.5"),
+  events = c(nrow(p975_all), nrow(p975_primary), nrow(p975_broad)),
+  stations = c(
+    uniqueN(p975_all$station_number),
+    uniqueN(p975_primary$station_number),
+    uniqueN(p975_broad$station_number)
+  ),
+  first_event = c(
+    min(p975_all$event_peak_date),
+    min(p975_primary$event_peak_date),
+    min(p975_broad$event_peak_date)
+  ),
+  last_event = c(
+    max(p975_all$event_peak_date),
+    max(p975_primary$event_peak_date),
+    max(p975_broad$event_peak_date)
+  )
+)
+
+integrity
+```
+
+# Threshold distributions
+
+```{r}
+#| label: threshold-summary
+
+threshold_summary <- thresholds[, .(
+  stations = .N,
+  valid_thresholds = sum(reference_threshold_valid, na.rm = TRUE),
+  median_reference_wet_days = median(n_reference_wet_days, na.rm = TRUE),
+  median_threshold_mm = median(threshold_mm, na.rm = TRUE),
+  q10_threshold_mm = quantile(threshold_mm, 0.10, na.rm = TRUE),
+  q90_threshold_mm = quantile(threshold_mm, 0.90, na.rm = TRUE)
+), by = .(threshold_id, threshold_probability)]
+
+threshold_summary
+```
+
+```{r}
+#| label: fig-threshold-distributions
+#| fig-width: 9
+#| fig-height: 5
+
+threshold_plot <- copy(thresholds)
+threshold_plot[, threshold_name := factor(
+  threshold_id,
+  levels = c("p95", "p975", "p99"),
+  labels = c("P95", "P97.5", "P99")
+)]
+
+ggplot(threshold_plot, aes(threshold_mm, colour = threshold_name, fill = threshold_name)) +
+  geom_density(alpha = 0.15, na.rm = TRUE) +
+  labs(
+    title = "Station-specific rainfall thresholds",
+    subtitle = "Calculated from eligible wet days during 1961–1990",
+    x = "Threshold (mm)",
+    y = "Density",
+    colour = NULL,
+    fill = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# Declustering sensitivity
+
+```{r}
+#| label: declustering-summary
+
+decluster_summary <- all_events[
+  ,
+  .(
+    events =
+      as.integer(.N),
+
+    stations =
+      as.integer(
+        uniqueN(station_number)
+      ),
+
+    median_peak_mm =
+      as.numeric(
+        median(
+          event_peak_mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_excess_mm =
+      as.numeric(
+        median(
+          excess_mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_duration_days =
+      as.numeric(
+        median(
+          event_duration_days,
+          na.rm = TRUE
+        )
+      ),
+
+    multi_exceedance_fraction =
+      as.numeric(
+        mean(
+          n_exceedance_days > 1L,
+          na.rm = TRUE
+        )
+      )
+  ),
+  by = .(
+    threshold_label_plot,
+    run_length_days
+  )
+]
+
+run2 <- decluster_summary[
+  run_length_days == 2L,
+  .(
+    threshold_label_plot,
+    events_run2 =
+      as.integer(events)
+  )
+]
+
+decluster_summary <- merge(
+  decluster_summary,
+  run2,
+  by = "threshold_label_plot",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+decluster_summary[
+  ,
+  event_reduction_vs_run2_pct :=
+    as.numeric(
+      100 *
+        (
+          events_run2 -
+          events
+        ) /
+        events_run2
+    )
+]
+
+data.table::setorder(
+  decluster_summary,
+  threshold_label_plot,
+  run_length_days
+)
+
+decluster_summary
+```
+
+```{r}
+#| label: fig-declustering
+#| fig-width: 9
+#| fig-height: 5
+
+ggplot(
+  decluster_summary,
+  aes(factor(run_length_days), events, group = threshold_label_plot, colour = threshold_label_plot)
+) +
+  geom_line() +
+  geom_point(size = 2.5) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Declustered event counts are relatively insensitive to run length",
+    x = "Required non-exceedance run length (days)",
+    y = "Declustered events",
+    colour = "Threshold"
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# Sampling adequacy by station
+
+```{r}
+#| label: station-event-counts
+
+station_counts <- all_events[run_length_days == 3L, .(
+  events = .N
+), by = .(
+  threshold_id,
+  threshold_label_plot,
+  station_number,
+  station_name,
+  latitude,
+  longitude,
+  state
+)]
+
+station_count_summary <- station_counts[
+  ,
+  .(
+    stations =
+      as.integer(.N),
+
+    minimum_events =
+      as.integer(
+        min(events)
+      ),
+
+    q10_events =
+      as.numeric(
+        quantile(
+          events,
+          0.10,
+          names = FALSE
+        )
+      ),
+
+    median_events =
+      as.numeric(
+        median(events)
+      ),
+
+    q90_events =
+      as.numeric(
+        quantile(
+          events,
+          0.90,
+          names = FALSE
+        )
+      ),
+
+    maximum_events =
+      as.integer(
+        max(events)
+      ),
+
+    stations_lt_20 =
+      as.integer(
+        sum(events < 20)
+      ),
+
+    stations_lt_30 =
+      as.integer(
+        sum(events < 30)
+      ),
+
+    stations_lt_50 =
+      as.integer(
+        sum(events < 50)
+      ),
+
+    stations_ge_100 =
+      as.integer(
+        sum(events >= 100)
+      )
+  ),
+  by = .(
+    threshold_id,
+    threshold_label_plot
+  )
+]
+
+station_count_summary
+```
+
+```{r}
+#| label: fig-station-event-counts
+#| fig-width: 9
+#| fig-height: 5
+
+ggplot(station_counts, aes(events, colour = threshold_label_plot, fill = threshold_label_plot)) +
+  geom_density(alpha = 0.12) +
+  labs(
+    title = "Independent POT events available per station",
+    subtitle = "Three-day runs declustering, 1950–2025",
+    x = "Events per station",
+    y = "Density",
+    colour = NULL,
+    fill = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# Event characteristics
+
+```{r}
+#| label: event-characteristics
+
+primary_characteristics <- p975_primary[, .(
+  events = .N,
+  median_peak_mm = median(event_peak_mm),
+  median_excess_mm = median(excess_mm),
+  mean_excess_mm = mean(excess_mm),
+  q90_excess_mm = quantile(excess_mm, .90),
+  q95_excess_mm = quantile(excess_mm, .95),
+  q99_excess_mm = quantile(excess_mm, .99),
+  maximum_excess_mm = max(excess_mm),
+  median_duration_days = median(event_duration_days),
+  mean_duration_days = mean(event_duration_days),
+  multi_exceedance_fraction = mean(n_exceedance_days > 1L)
+)]
+
+primary_characteristics
+```
+
+```{r}
+#| label: fig-event-duration
+#| fig-width: 8
+#| fig-height: 4.5
+
+duration_counts <- p975_primary[, .N, by = event_duration_days][order(event_duration_days)]
+
+ggplot(duration_counts, aes(event_duration_days, N)) +
+  geom_col() +
+  coord_cartesian(xlim = c(1, quantile(p975_primary$event_duration_days, .99))) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Duration of declustered P97.5 rainfall events",
+    x = "Event duration (days)",
+    y = "Events"
+  )
+```
+
+# Seasonal composition
+
+```{r}
+#| label: seasonal-events
+
+season_summary <- p975_primary[, .(
+  events = .N,
+  fraction = .N / nrow(p975_primary)
+), by = season]
+
+season_summary
+```
+
+```{r}
+#| label: fig-season
+#| fig-width: 7
+#| fig-height: 4.5
+
+ggplot(season_summary, aes(season, events)) +
+  geom_col() +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Seasonal composition of P97.5 events",
+    x = NULL,
+    y = "Events"
+  )
+```
+
+# Spatial event-rate diagnostics
+
+```{r}
+#| label: spatial-event-rate
+
+station_primary <- p975_primary[, .(
+  events = .N,
+  events_per_year = .N / 76
+), by = .(
+  station_number,
+  station_name,
+  latitude,
+  longitude,
+  state
+)]
+```
+
+```{r}
+#| label: fig-event-rate-map
+#| fig-width: 9
+#| fig-height: 6
+
+ggplot(station_primary, aes(longitude, latitude, colour = events_per_year)) +
+  geom_point(size = 1.5) +
+  coord_quickmap(xlim = c(112, 154), ylim = c(-44, -10)) +
+  scale_colour_viridis_c() +
+  labs(
+    title = "P97.5 extreme-rainfall event rate",
+    subtitle = "Three-day declustering; primary rainfall-quality subset",
+    x = "Longitude",
+    y = "Latitude",
+    colour = "Events/year"
+  )
+```
+
+# Temporal event-rate diagnostics
+
+```{r}
+#| label: annual-event-rate
+
+events_year <- p975_primary[, .(
+  events = .N,
+  stations_with_events = uniqueN(station_number),
+  median_excess_mm = median(excess_mm),
+  mean_excess_mm = mean(excess_mm)
+), by = year]
+
+# Network-wide event counts are descriptive only. Because stations have different
+# event rates and occasional missing years, formal rate inference remains a model task.
+events_year
+```
+
+```{r}
+#| label: fig-events-year
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(events_year, aes(year, events)) +
+  geom_line(linewidth = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.7) +
+  labs(
+    title = "P97.5 declustered event counts through time",
+    x = "Year",
+    y = "Events"
+  )
+```
+
+# Early-versus-late comparison
+
+```{r}
+#| label: early-late
+
+p975_primary[, climate_period := fcase(
+  year >= 1950 & year <= 1975, "1950–1975",
+  year >= 1976 & year <= 2000, "1976–2000",
+  year >= 2001 & year <= 2025, "2001–2025",
+  default = NA_character_
+)]
+
+early_late <- p975_primary[!is.na(climate_period), .(
+  events = .N,
+  stations = uniqueN(station_number),
+  median_peak_mm = median(event_peak_mm),
+  median_excess_mm = median(excess_mm),
+  mean_excess_mm = mean(excess_mm),
+  p95_excess_mm = quantile(excess_mm, .95),
+  p99_excess_mm = quantile(excess_mm, .99)
+), by = climate_period]
+
+early_late
+```
+
+# Data-quality sensitivity
+
+```{r}
+#| label: quality-sensitivity
+
+quality_summary <- p975_all[, .(
+  events = .N,
+  median_peak_mm = median(event_peak_mm),
+  median_excess_mm = median(excess_mm),
+  mean_excess_mm = mean(excess_mm),
+  p99_excess_mm = quantile(excess_mm, .99),
+  maximum_peak_mm = max(event_peak_mm)
+), by = rainfall_quality_peak][order(rainfall_quality_peak)]
+
+qc_dataset_comparison <- rbindlist(list(
+  p975_all[, .(
+    dataset = "All eligible",
+    events = .N,
+    median_excess_mm = median(excess_mm),
+    mean_excess_mm = mean(excess_mm),
+    p95_excess_mm = quantile(excess_mm, .95),
+    p99_excess_mm = quantile(excess_mm, .99),
+    maximum_excess_mm = max(excess_mm)
+  )],
+  p975_broad[, .(
+    dataset = "PRCP_QUAL 0–5",
+    events = .N,
+    median_excess_mm = median(excess_mm),
+    mean_excess_mm = mean(excess_mm),
+    p95_excess_mm = quantile(excess_mm, .95),
+    p99_excess_mm = quantile(excess_mm, .99),
+    maximum_excess_mm = max(excess_mm)
+  )],
+  p975_primary[, .(
+    dataset = "PRCP_QUAL 0–4",
+    events = .N,
+    median_excess_mm = median(excess_mm),
+    mean_excess_mm = mean(excess_mm),
+    p95_excess_mm = quantile(excess_mm, .95),
+    p99_excess_mm = quantile(excess_mm, .99),
+    maximum_excess_mm = max(excess_mm)
+  )]
+))
+
+quality_summary
+qc_dataset_comparison
+```
+
+# Mean residual life diagnostics
+
+For a generalized Pareto tail above a sufficiently high threshold, the mean excess above threshold should be approximately linear as the threshold increases. Because station rainfall climates vary greatly, diagnostics are calculated on station-normalized threshold levels rather than on a single national millimetre threshold.
+
+```{r}
+#| label: mrl-data
+
+# Use the raw P95 run-3 event peaks. These contain enough tail depth to evaluate
+# progressively higher station-relative thresholds.
+p95_events <- all_events[
+  threshold_id == "p95" &
+  run_length_days == 3L &
+  rainfall_quality_peak %in% c(0L, 1L, 2L, 3L, 4L)
+]
+
+# Fractional positions between each station's P95 and the upper observed tail.
+# P97.5 and P99 remain the main formal thresholds; this grid is diagnostic.
+diag_probs <- c(.95, .96, .97, .975, .98, .985, .99)
+
+# Build station-specific diagnostic thresholds directly from event peaks.
+# At .95 the stored P95 threshold is used. Higher levels use empirical quantiles
+# of eligible P95 event peaks, providing a stability diagnostic rather than a new
+# climatological threshold definition.
+station_mrl <- rbindlist(lapply(diag_probs, function(prob) {
+  p95_events[, {
+    u <- if (abs(prob - .95) < 1e-10) {
+      first(threshold_mm)
+    } else {
+      as.numeric(quantile(event_peak_mm, prob =
+        (prob - .95) / (1 - .95), na.rm = TRUE, names = FALSE))
+    }
+    exc <- event_peak_mm[event_peak_mm > u] - u
+    list(
+      diagnostic_probability = prob,
+      diagnostic_threshold_mm = u,
+      exceedances = length(exc),
+      mean_excess_mm = if (length(exc) > 0L) mean(exc) else NA_real_
+    )
+  }, by = .(station_number, station_name, state)]
+}))
+
+mrl_summary <- station_mrl[, .(
+  stations = uniqueN(station_number),
+  median_exceedances = median(exceedances),
+  median_threshold_mm = median(diagnostic_threshold_mm, na.rm = TRUE),
+  median_mean_excess_mm = median(mean_excess_mm, na.rm = TRUE),
+  q25_mean_excess_mm = quantile(mean_excess_mm, .25, na.rm = TRUE),
+  q75_mean_excess_mm = quantile(mean_excess_mm, .75, na.rm = TRUE)
+), by = diagnostic_probability]
+
+mrl_summary
+```
+
+```{r}
+#| label: fig-mrl
+#| fig-width: 9
+#| fig-height: 5
+
+ggplot(mrl_summary, aes(diagnostic_probability, median_mean_excess_mm)) +
+  geom_ribbon(aes(ymin = q25_mean_excess_mm, ymax = q75_mean_excess_mm), alpha = .15) +
+  geom_line(linewidth = .8) +
+  geom_point(size = 2) +
+  scale_x_continuous(labels = percent_format(accuracy = .1)) +
+  labs(
+    title = "Mean residual life diagnostic",
+    subtitle = "Median station mean excess with interquartile range",
+    x = "Diagnostic tail level",
+    y = "Mean excess (mm)"
+  )
+```
+
+# Station-level GPD parameter stability
+
+This section uses a lightweight maximum-likelihood GPD fit to inspect whether scale and shape estimates remain reasonably stable between P95, P97.5 and P99. These are diagnostics only. They are not the final hierarchical/non-stationary GPD models.
+
+```{r}
+#| label: gpd-functions
+
+gpd_nll <- function(par, excess) {
+  log_scale <- par[1]
+  shape <- par[2]
+  scale <- exp(log_scale)
+
+  if (!is.finite(scale) || scale <= 0) return(Inf)
+
+  if (abs(shape) < 1e-7) {
+    return(length(excess) * log(scale) + sum(excess) / scale)
+  }
+
+  z <- 1 + shape * excess / scale
+  if (any(z <= 0) || any(!is.finite(z))) return(Inf)
+
+  length(excess) * log(scale) +
+    (1 / shape + 1) * sum(log(z))
+}
+
+fit_gpd_quick <- function(excess) {
+
+  excess <- as.numeric(
+    excess[
+      is.finite(excess) &
+        excess > 0
+    ]
+  )
+
+
+  if (length(excess) < 20L) {
+
+    return(
+      list(
+        scale =
+          NA_real_,
+
+        shape =
+          NA_real_,
+
+        convergence =
+          NA_integer_
+      )
+    )
+  }
+
+
+  start_scale <- as.numeric(
+    max(
+      mean(excess),
+      0.1
+    )
+  )
+
+
+  fit <- tryCatch(
+
+    stats::optim(
+      par = c(
+        log(start_scale),
+        0.1
+      ),
+      fn = gpd_nll,
+      excess = excess,
+      method = "Nelder-Mead",
+      control = list(
+        maxit = 3000L
+      )
+    ),
+
+    error = function(e) {
+      NULL
+    }
+  )
+
+
+  if (is.null(fit)) {
+
+    return(
+      list(
+        scale =
+          NA_real_,
+
+        shape =
+          NA_real_,
+
+        convergence =
+          99L
+      )
+    )
+  }
+
+
+  list(
+    scale =
+      as.numeric(
+        exp(
+          fit$par[1]
+        )
+      ),
+
+    shape =
+      as.numeric(
+        fit$par[2]
+      ),
+
+    convergence =
+      as.integer(
+        fit$convergence
+      )
+  )
+}
+```
+
+```{r}
+#| label: gpd-stability
+
+run3_primary_quality <- all_events[
+  run_length_days == 3L &
+    rainfall_quality_peak %in%
+      c(
+        0L,
+        1L,
+        2L,
+        3L,
+        4L
+      )
+]
+
+gpd_station_stability <- run3_primary_quality[
+  ,
+  {
+
+    fit <- fit_gpd_quick(
+      excess_mm
+    )
+
+    list(
+      events =
+        as.integer(.N),
+
+      scale_mm =
+        as.numeric(
+          fit$scale
+        ),
+
+      shape =
+        as.numeric(
+          fit$shape
+        ),
+
+      convergence =
+        as.integer(
+          fit$convergence
+        )
+    )
+  },
+  by = .(
+    station_number,
+    station_name,
+    state,
+    threshold_id,
+    threshold_label_plot
+  )
+]
+
+# ------------------------------------------------------------
+# Valid diagnostic fits only
+# ------------------------------------------------------------
+
+gpd_station_stability[
+  ,
+  fit_valid :=
+    convergence == 0L &
+    is.finite(scale_mm) &
+    is.finite(shape) &
+    scale_mm > 0
+]
+
+# ------------------------------------------------------------
+# Summary by threshold
+# ------------------------------------------------------------
+
+gpd_stability_summary <-
+  gpd_station_stability[
+    fit_valid == TRUE,
+    .(
+      stations_fitted =
+        as.integer(.N),
+
+      median_events =
+        as.numeric(
+          median(
+            events,
+            na.rm = TRUE
+          )
+        ),
+
+      median_scale_mm =
+        as.numeric(
+          median(
+            scale_mm,
+            na.rm = TRUE
+          )
+        ),
+
+      q25_scale_mm =
+        as.numeric(
+          quantile(
+            scale_mm,
+            0.25,
+            na.rm = TRUE,
+            names = FALSE
+          )
+        ),
+
+      q75_scale_mm =
+        as.numeric(
+          quantile(
+            scale_mm,
+            0.75,
+            na.rm = TRUE,
+            names = FALSE
+          )
+        ),
+
+      median_shape =
+        as.numeric(
+          median(
+            shape,
+            na.rm = TRUE
+          )
+        ),
+
+      q25_shape =
+        as.numeric(
+          quantile(
+            shape,
+            0.25,
+            na.rm = TRUE,
+            names = FALSE
+          )
+        ),
+
+      q75_shape =
+        as.numeric(
+          quantile(
+            shape,
+            0.75,
+            na.rm = TRUE,
+            names = FALSE
+          )
+        ),
+
+      shape_negative_fraction =
+        as.numeric(
+          mean(
+            shape < 0,
+            na.rm = TRUE
+          )
+        ),
+
+      shape_positive_fraction =
+        as.numeric(
+          mean(
+            shape > 0,
+            na.rm = TRUE
+          )
+        )
+    ),
+    by = .(
+      threshold_id,
+      threshold_label_plot
+    )
+  ]
+
+gpd_stability_summary[
+  ,
+  threshold_order :=
+    match(
+      threshold_id,
+      c(
+        "p95",
+        "p975",
+        "p99"
+      )
+    )
+]
+
+data.table::setorder(
+  gpd_stability_summary,
+  threshold_order
+)
+
+gpd_stability_summary[
+  ,
+  threshold_order := NULL
+]
+
+gpd_stability_summary
+```
+
+```{r}
+#| label: fig-gpd-stability
+#| fig-width: 10
+#| fig-height: 5
+
+p1 <- ggplot(
+  gpd_station_stability[convergence == 0L],
+  aes(threshold_label_plot, scale_mm)
+) +
+  geom_boxplot(outlier.alpha = .1) +
+  coord_cartesian(ylim = c(0, quantile(gpd_station_stability$scale_mm, .95, na.rm = TRUE))) +
+  labs(title = "GPD scale stability", x = NULL, y = "Scale (mm)")
+
+p1
+```
+
+```{r}
+#| label: fig-gpd-shape-stability
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(
+  gpd_station_stability[convergence == 0L],
+  aes(threshold_label_plot, shape)
+) +
+  geom_boxplot(outlier.alpha = .1) +
+  coord_cartesian(ylim = quantile(gpd_station_stability$shape, c(.02, .98), na.rm = TRUE)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  labs(title = "GPD shape stability", x = NULL, y = "Shape")
+```
+
+# Diagnostic decision table
+
+```{r}
+#| label: decision-table
+
+decision_table <- merge(
+
+  station_count_summary[
+    ,
+    .(
+      threshold_id,
+
+      threshold =
+        as.character(
+          threshold_label_plot
+        ),
+
+      median_events =
+        as.numeric(
+          median_events
+        ),
+
+      q10_events =
+        as.numeric(
+          q10_events
+        ),
+
+      minimum_events =
+        as.integer(
+          minimum_events
+        ),
+
+      stations_lt_20 =
+        as.integer(
+          stations_lt_20
+        ),
+
+      stations_lt_30 =
+        as.integer(
+          stations_lt_30
+        ),
+
+      stations_lt_50 =
+        as.integer(
+          stations_lt_50
+        )
+    )
+  ],
+
+  gpd_stability_summary[
+    ,
+    .(
+      threshold_id,
+
+      stations_fitted =
+        as.integer(
+          stations_fitted
+        ),
+
+      median_scale_mm =
+        as.numeric(
+          median_scale_mm
+        ),
+
+      median_shape =
+        as.numeric(
+          median_shape
+        ),
+
+      q25_shape =
+        as.numeric(
+          q25_shape
+        ),
+
+      q75_shape =
+        as.numeric(
+          q75_shape
+        )
+    )
+  ],
+
+  by =
+    "threshold_id",
+
+  all.x =
+    TRUE,
+
+  sort =
+    FALSE
+)
+
+decision_table[
+  ,
+  threshold_order :=
+    match(
+      threshold_id,
+      c(
+        "p95",
+        "p975",
+        "p99"
+      )
+    )
+]
+
+data.table::setorder(
+  decision_table,
+  threshold_order
+)
+
+decision_table[
+  ,
+  threshold_order :=
+    NULL
+]
+
+decision_table
+```
+
+# Outputs
+
+```{r}
+#| label: outputs
+
+fwrite(integrity, file.path(out_dir, "pot_integrity.csv"))
+fwrite(threshold_summary, file.path(out_dir, "threshold_summary.csv"))
+fwrite(decluster_summary, file.path(out_dir, "declustering_summary.csv"))
+fwrite(station_count_summary, file.path(out_dir, "station_event_count_summary.csv"))
+fwrite(primary_characteristics, file.path(out_dir, "p975_primary_characteristics.csv"))
+fwrite(season_summary, file.path(out_dir, "p975_season_summary.csv"))
+fwrite(station_primary, file.path(out_dir, "p975_station_event_rates.csv"))
+fwrite(events_year, file.path(out_dir, "p975_annual_event_summary.csv"))
+fwrite(early_late, file.path(out_dir, "p975_climate_period_summary.csv"))
+fwrite(quality_summary, file.path(out_dir, "p975_quality_summary.csv"))
+fwrite(qc_dataset_comparison, file.path(out_dir, "p975_quality_sensitivity.csv"))
+fwrite(mrl_summary, file.path(out_dir, "mean_residual_life_summary.csv"))
+fwrite(gpd_station_stability, file.path(out_dir, "station_gpd_stability.csv"))
+fwrite(gpd_stability_summary, file.path(out_dir, "gpd_stability_summary.csv"))
+fwrite(decision_table, file.path(out_dir, "threshold_decision_table.csv"))
+```
+
+# Decision framework
+
+The primary threshold should satisfy all of the following:
+
+1. a sufficiently high threshold for plausible generalized Pareto tail behaviour;
+2. stable scale and shape estimates as threshold increases;
+3. adequate independent event counts across most or all stations;
+4. limited sensitivity to reasonable declustering run lengths;
+5. limited sensitivity to rainfall-element quality filtering;
+6. sufficient sample size for subsequent spatial/non-stationary modelling.
+
+P97.5 is the provisional primary threshold because it retains substantially more information than P99 while being appreciably deeper into the tail than P95. The diagnostics above determine whether that provisional choice is retained.
+
+# Next phase
+
+Once the threshold is fixed, the next model sequence is:
+
+1. stationary pooled/structured GPD benchmark;
+2. time-varying GPD scale with initially common/strongly pooled shape;
+3. explicit exceedance-rate model combined with the GPD magnitude model;
+4. early-versus-recent return-level comparison;
+5. threshold and declustering sensitivity;
+6. spatial dependence and joint-extreme diagnostics.

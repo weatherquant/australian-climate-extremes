@@ -1,0 +1,4 @@
+threshold_id,threshold_label_plot,stations,minimum_events,q10_events,median_events,q90_events,maximum_events,stations_lt_20,stations_lt_30,stations_lt_50,stations_ge_100
+p95,P95,742,38,112.1,207.5,331,529,0,0,1,692
+p975,P97.5,742,16,57,110,176,293,2,6,46,427
+p99,P99,742,5,22,45,75,127,40,143,444,14

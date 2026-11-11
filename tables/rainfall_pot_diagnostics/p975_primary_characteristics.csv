@@ -1,0 +1,2 @@
+events,median_peak_mm,median_excess_mm,mean_excess_mm,q90_excess_mm,q95_excess_mm,q99_excess_mm,maximum_excess_mm,median_duration_days,mean_duration_days,multi_exceedance_fraction
+84351,46,9.72249999999997,18.3185703291406,43.1608333333333,63.6829166666668,131.10125,584.4225,1,1.13698711337151,0.0897677561617527

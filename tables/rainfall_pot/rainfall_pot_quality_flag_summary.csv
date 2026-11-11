@@ -1,0 +1,10 @@
+rainfall_quality_peak,rainfall_quality_class,events,median_peak_mm,p99_peak_mm,maximum_peak_mm
+0,accepted_or_corrected,83439,46,213.062,699.8
+1,accepted_or_corrected,1,450,450,450
+2,accepted_or_corrected,133,51,240.72,400.6
+3,estimated,124,51.2,350.463,482
+4,estimated,654,50,198.088,326
+5,gross_estimate,96,58.3,287.87,407
+6,suspect,165,44.8,281.143999999999,553.6
+8,suspect,13,62.6,375.8,380
+9,wrong,1,553.4,553.4,553.4

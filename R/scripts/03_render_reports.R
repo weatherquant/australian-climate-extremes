@@ -19,3 +19,10 @@ quarto::quarto_render(
 quarto::quarto_render(
   "analysis/05_extreme_rainfall.qmd"
 )
+
+# ------------------------------------------------------------
+# Rainfall POT diagnostics
+# ------------------------------------------------------------
+quarto::quarto_render(
+  "analysis/06_rainfall_pot_diagnostics.qmd"
+)
