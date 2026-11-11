@@ -1,0 +1,801 @@
+---
+title: "Australian Extreme Rainfall"
+subtitle: "Changes in rainfall occurrence, intensity and upper-tail behaviour across the 1950–2025 continental network"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Purpose
+
+This report provides the first substantive analysis of rainfall extremes in the frozen continental Australian station network. The primary network comprises 742 stations selected for 1950–2025 using a requirement of at least 95% daily completeness in at least 69 of the 76 calendar years.
+
+The analysis deliberately separates four components of rainfall change:
+
+1. rainfall occurrence;
+2. ordinary wet-day intensity;
+3. upper-tail frequency and contribution;
+4. annual maximum one-day rainfall (Rx1day).
+
+Station-specific upper-tail thresholds are fixed using eligible wet days during 1961–1990. This means changes in exceedance frequency through time are measured against a stable historical threshold rather than a threshold that moves with each year.
+
+# Setup
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(arrow)
+library(ggplot2)
+library(scales)
+
+project_root <- if (file.exists("_targets.R")) {
+  "."
+} else if (file.exists("../_targets.R")) {
+  ".."
+} else {
+  stop("Could not locate project root containing _targets.R.", call. = FALSE)
+}
+
+extreme_dir <- file.path(
+  project_root,
+  "data-derived",
+  "rainfall",
+  "extremes"
+)
+
+metrics_file <- file.path(
+  extreme_dir,
+  "rainfall_annual_extreme_metrics_1950_2025.parquet"
+)
+
+threshold_file <- file.path(
+  extreme_dir,
+  "rainfall_reference_thresholds_1961_1990.parquet"
+)
+
+validation_file <- file.path(
+  extreme_dir,
+  "rainfall_annual_extreme_metrics_validation.csv"
+)
+
+required <- c(metrics_file, threshold_file, validation_file)
+missing_files <- required[!file.exists(required)]
+
+if (length(missing_files) > 0L) {
+  stop(
+    "Required extreme-rainfall products are missing:\n",
+    paste(missing_files, collapse = "\n"),
+    call. = FALSE
+  )
+}
+
+rain <- as.data.table(read_parquet(metrics_file))
+thresholds <- as.data.table(read_parquet(threshold_file))
+validation <- fread(validation_file)
+
+setorder(rain, station_number, year)
+
+# Primary inferential population: station-years meeting the same
+# >=95% annual completeness criterion used in network construction.
+rain_complete <- rain[
+  annual_complete_95 == TRUE &
+  reference_threshold_valid == TRUE
+]
+
+# Avoid reporting 2026 because the analysis period is frozen at 2025.
+stopifnot(max(rain$year) == 2025L)
+
+theme_set(theme_minimal(base_size = 11))
+```
+
+# Data integrity
+
+```{r}
+#| label: integrity-summary
+
+integrity <- rain[, .(
+  station_years = .N,
+  stations = uniqueN(station_number),
+  first_year = min(year),
+  last_year = max(year),
+  complete_95_station_years = sum(annual_complete_95, na.rm = TRUE),
+  observed_days = sum(n_observed, na.rm = TRUE),
+  valid_1day_records = sum(n_valid_1day, na.rm = TRUE),
+  excluded_1day_records = sum(n_invalid_1day, na.rm = TRUE),
+  multiday_records = sum(n_multiday_excluded, na.rm = TRUE),
+  nonstandard_period_records = sum(n_nonstandard_period_excluded, na.rm = TRUE),
+  nonzero_quality_flags = sum(n_nonzero_quality_flag, na.rm = TRUE),
+  missing_rx1day = sum(is.na(rx1day_mm))
+)]
+
+integrity[, excluded_fraction := excluded_1day_records / observed_days]
+integrity[, nonzero_quality_fraction := nonzero_quality_flags / observed_days]
+
+integrity
+validation
+```
+
+The one-day eligibility filter excludes multi-day and non-standard-period observations from Rx1day and threshold exceedance calculations. Annual recorded rainfall is retained separately so accumulated rainfall remains represented in the annual water total.
+
+## Reference thresholds
+
+```{r}
+#| label: threshold-summary
+
+threshold_distribution <- thresholds[, .(
+  stations = .N,
+  valid_thresholds = sum(reference_threshold_valid, na.rm = TRUE),
+  min_reference_wet_days = min(n_reference_wet_days, na.rm = TRUE),
+  median_reference_wet_days = median(n_reference_wet_days, na.rm = TRUE),
+  max_reference_wet_days = max(n_reference_wet_days, na.rm = TRUE),
+  median_p90_mm = median(p90_reference_mm, na.rm = TRUE),
+  median_p95_mm = median(p95_reference_mm, na.rm = TRUE),
+  median_p99_mm = median(p99_reference_mm, na.rm = TRUE)
+)]
+
+threshold_distribution
+```
+
+```{r}
+#| label: fig-reference-thresholds
+#| fig-width: 9
+#| fig-height: 5
+
+threshold_long <- melt(
+  thresholds,
+  measure.vars = c("p90_reference_mm", "p95_reference_mm", "p99_reference_mm"),
+  variable.name = "threshold",
+  value.name = "rainfall_mm"
+)
+
+threshold_long[, threshold := factor(
+  threshold,
+  levels = c("p90_reference_mm", "p95_reference_mm", "p99_reference_mm"),
+  labels = c("P90", "P95", "P99")
+)]
+
+ggplot(threshold_long, aes(rainfall_mm, colour = threshold, fill = threshold)) +
+  geom_density(alpha = 0.15, na.rm = TRUE) +
+  coord_cartesian(xlim = c(0, quantile(threshold_long$rainfall_mm, .99, na.rm = TRUE))) +
+  labs(
+    title = "Station-specific 1961–1990 wet-day thresholds",
+    x = "Reference threshold (mm)",
+    y = "Density",
+    colour = NULL,
+    fill = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# National descriptive time series
+
+National summaries are deliberately based on station-level annual metrics rather than pooling all daily observations. This gives each selected station equal weight at this descriptive stage. Spatially weighted national estimates are a later sensitivity analysis.
+
+```{r}
+#| label: national-series
+
+national_year <- rain_complete[
+  ,
+  .(
+    stations =
+      as.integer(
+        uniqueN(station_number)
+      ),
+
+    median_annual_rainfall_mm =
+      as.numeric(
+        median(
+          annual_total_recorded_mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_wet_days =
+      as.numeric(
+        median(
+          wet_days_valid,
+          na.rm = TRUE
+        )
+      ),
+
+    median_wet_day_intensity_mm =
+      as.numeric(
+        median(
+          mean_wet_day_mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_rx1day_mm =
+      as.numeric(
+        median(
+          rx1day_mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_days_ge_25mm =
+      as.numeric(
+        median(
+          days_ge_25mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_days_ge_50mm =
+      as.numeric(
+        median(
+          days_ge_50mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_days_ge_100mm =
+      as.numeric(
+        median(
+          days_ge_100mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_days_above_p95 =
+      as.numeric(
+        median(
+          days_above_reference_p95,
+          na.rm = TRUE
+        )
+      ),
+
+    median_days_above_p99 =
+      as.numeric(
+        median(
+          days_above_reference_p99,
+          na.rm = TRUE
+        )
+      ),
+
+    median_rainfall_above_p95_mm =
+      as.numeric(
+        median(
+          rainfall_above_reference_p95_mm,
+          na.rm = TRUE
+        )
+      ),
+
+    median_rainfall_above_p99_mm =
+      as.numeric(
+        median(
+          rainfall_above_reference_p99_mm,
+          na.rm = TRUE
+        )
+      )
+  ),
+  by = year
+]
+
+data.table::setorder(
+  national_year,
+  year
+)
+
+national_year
+```
+
+# Rainfall occurrence
+
+```{r}
+#| label: fig-wet-days
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(national_year, aes(year, median_wet_days)) +
+  geom_line(linewidth = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.7) +
+  labs(
+    title = "Rainfall occurrence through time",
+    subtitle = "Median annual wet-day count across ≥95%-complete station-years",
+    x = "Year",
+    y = "Wet days (rainfall ≥1 mm)"
+  )
+```
+
+# Wet-day intensity
+
+```{r}
+#| label: fig-wet-day-intensity
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(national_year, aes(year, median_wet_day_intensity_mm)) +
+  geom_line(linewidth = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.7) +
+  labs(
+    title = "Mean wet-day rainfall intensity through time",
+    subtitle = "Median station-level annual intensity across the continental network",
+    x = "Year",
+    y = "Mean wet-day rainfall (mm)"
+  )
+```
+
+# Annual rainfall
+
+```{r}
+#| label: fig-annual-rainfall
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(national_year, aes(year, median_annual_rainfall_mm)) +
+  geom_line(linewidth = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.7) +
+  labs(
+    title = "Annual rainfall through time",
+    subtitle = "Median station annual recorded rainfall",
+    x = "Year",
+    y = "Annual rainfall (mm)"
+  )
+```
+
+# Upper-tail frequency
+
+## Fixed P95 and P99 exceedances
+
+```{r}
+#| label: fig-percentile-frequency
+#| fig-width: 10
+#| fig-height: 6
+
+percentile_frequency <- melt(
+  national_year,
+  id.vars = "year",
+  measure.vars = c("median_days_above_p95", "median_days_above_p99"),
+  variable.name = "threshold",
+  value.name = "days"
+)
+
+percentile_frequency[, threshold := factor(
+  threshold,
+  levels = c("median_days_above_p95", "median_days_above_p99"),
+  labels = c("Above 1961–1990 P95", "Above 1961–1990 P99")
+)]
+
+ggplot(percentile_frequency, aes(year, days, colour = threshold)) +
+  geom_line(linewidth = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7) +
+  labs(
+    title = "Frequency of historically extreme wet days",
+    subtitle = "Thresholds fixed independently for each station from 1961–1990 wet days",
+    x = "Year",
+    y = "Median exceedance days per station",
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+## Fixed absolute thresholds
+
+```{r}
+#| label: fig-absolute-thresholds
+#| fig-width: 10
+#| fig-height: 6
+
+absolute_frequency <- melt(
+  national_year,
+  id.vars = "year",
+  measure.vars = c(
+    "median_days_ge_25mm",
+    "median_days_ge_50mm",
+    "median_days_ge_100mm"
+  ),
+  variable.name = "threshold",
+  value.name = "days"
+)
+
+absolute_frequency[, threshold := factor(
+  threshold,
+  levels = c("median_days_ge_25mm", "median_days_ge_50mm", "median_days_ge_100mm"),
+  labels = c("≥25 mm", "≥50 mm", "≥100 mm")
+)]
+
+ggplot(absolute_frequency, aes(year, days, colour = threshold)) +
+  geom_line(linewidth = 0.7) +
+  labs(
+    title = "Frequency of heavy one-day rainfall",
+    x = "Year",
+    y = "Median annual days per station",
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# Extreme-rainfall contribution
+
+```{r}
+#| label: contribution-metrics
+
+rain_complete[, p95_rainfall_fraction := fifelse(
+  annual_total_recorded_mm > 0,
+  rainfall_above_reference_p95_mm / annual_total_recorded_mm,
+  NA_real_
+)]
+
+rain_complete[, p99_rainfall_fraction := fifelse(
+  annual_total_recorded_mm > 0,
+  rainfall_above_reference_p99_mm / annual_total_recorded_mm,
+  NA_real_
+)]
+
+contribution_year <- rain_complete[
+  ,
+  .(
+    median_p95_fraction =
+      as.numeric(
+        median(
+          p95_rainfall_fraction,
+          na.rm = TRUE
+        )
+      ),
+
+    median_p99_fraction =
+      as.numeric(
+        median(
+          p99_rainfall_fraction,
+          na.rm = TRUE
+        )
+      )
+  ),
+  by = year
+]
+
+data.table::setorder(
+  contribution_year,
+  year
+)
+```
+
+```{r}
+#| label: fig-extreme-contribution
+#| fig-width: 10
+#| fig-height: 5
+
+contribution_long <- melt(
+  contribution_year,
+  id.vars = "year",
+  measure.vars = c("median_p95_fraction", "median_p99_fraction"),
+  variable.name = "threshold",
+  value.name = "fraction"
+)
+
+contribution_long[, threshold := factor(
+  threshold,
+  levels = c("median_p95_fraction", "median_p99_fraction"),
+  labels = c("Above P95", "Above P99")
+)]
+
+ggplot(contribution_long, aes(year, fraction, colour = threshold)) +
+  geom_line(linewidth = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "Share of annual rainfall from historically extreme wet days",
+    x = "Year",
+    y = "Median fraction of annual rainfall",
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# Annual maximum one-day rainfall
+
+```{r}
+#| label: fig-rx1day
+#| fig-width: 10
+#| fig-height: 5
+
+ggplot(national_year, aes(year, median_rx1day_mm)) +
+  geom_line(linewidth = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.7) +
+  labs(
+    title = "Annual maximum one-day rainfall (Rx1day)",
+    subtitle = "Median station-level Rx1day across ≥95%-complete station-years",
+    x = "Year",
+    y = "Rx1day (mm)"
+  )
+```
+
+# Station-level trend estimation
+
+The first trend screen uses ordinary least squares for comparability across metrics. These estimates are descriptive baselines, not the final inferential models for counts or extreme values.
+
+```{r}
+#| label: trend-function
+
+fit_station_trend <- function(data, value_column, minimum_years = 50L) {
+  value_column <- as.character(value_column)
+
+  data[
+    !is.na(get(value_column)),
+    {
+      y <- get(value_column)
+      x <- year
+
+      if (.N < minimum_years || uniqueN(x) < minimum_years) {
+        list(
+          n_years = .N,
+          slope_per_decade = NA_real_,
+          standard_error_per_decade = NA_real_,
+          p_value = NA_real_
+        )
+      } else {
+        fit <- lm(y ~ x)
+        coefficient <- summary(fit)$coefficients
+
+        list(
+          n_years = .N,
+          slope_per_decade = unname(coef(fit)[2]) * 10,
+          standard_error_per_decade = coefficient[2, 2] * 10,
+          p_value = coefficient[2, 4]
+        )
+      }
+    },
+    by = .(
+      station_number,
+      station_name,
+      latitude,
+      longitude,
+      state,
+      rainfall_district
+    )
+  ]
+}
+```
+
+```{r}
+#| label: calculate-trends
+
+trend_variables <- c(
+  wet_days_valid = "Wet days",
+  mean_wet_day_mm = "Mean wet-day intensity",
+  rx1day_mm = "Rx1day",
+  days_above_reference_p95 = "Days above P95",
+  days_above_reference_p99 = "Days above P99",
+  rainfall_above_reference_p95_mm = "Rainfall above P95",
+  rainfall_above_reference_p99_mm = "Rainfall above P99"
+)
+
+station_trends <- rbindlist(
+  lapply(
+    names(trend_variables),
+    function(variable) {
+      result <- fit_station_trend(
+        rain_complete,
+        value_column = variable,
+        minimum_years = 50L
+      )
+      result[, metric := trend_variables[[variable]]]
+      result[, variable := variable]
+      result
+    }
+  ),
+  use.names = TRUE,
+  fill = TRUE
+)
+
+trend_summary <- station_trends[
+  !is.na(slope_per_decade),
+  .(
+    stations =
+      as.integer(.N),
+
+    median_slope_per_decade =
+      as.numeric(
+        median(
+          slope_per_decade
+        )
+      ),
+
+    q10_slope_per_decade =
+      as.numeric(
+        quantile(
+          slope_per_decade,
+          0.10,
+          names = FALSE
+        )
+      ),
+
+    q90_slope_per_decade =
+      as.numeric(
+        quantile(
+          slope_per_decade,
+          0.90,
+          names = FALSE
+        )
+      ),
+
+    positive_slopes =
+      as.integer(
+        sum(
+          slope_per_decade > 0
+        )
+      ),
+
+    negative_slopes =
+      as.integer(
+        sum(
+          slope_per_decade < 0
+        )
+      ),
+
+    nominal_p_lt_005 =
+      as.integer(
+        sum(
+          p_value < 0.05,
+          na.rm = TRUE
+        )
+      )
+  ),
+  by = .(
+    metric,
+    variable
+  )
+]
+
+trend_summary
+```
+
+# Spatial pattern of trends
+
+```{r}
+#| label: fig-rx1day-trend-map
+#| fig-width: 9
+#| fig-height: 6
+
+rx1day_trends <- station_trends[
+  variable == "rx1day_mm" & !is.na(slope_per_decade)
+]
+
+trend_limit <- quantile(abs(rx1day_trends$slope_per_decade), .95, na.rm = TRUE)
+
+ggplot(rx1day_trends, aes(longitude, latitude, colour = slope_per_decade)) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  coord_quickmap(xlim = c(112, 154), ylim = c(-44, -10)) +
+  scale_colour_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-trend_limit, trend_limit),
+    oob = squish
+  ) +
+  labs(
+    title = "Station-level trend in annual maximum one-day rainfall",
+    subtitle = "OLS baseline, 1950–2025; colour clipped at the 95th percentile of absolute slopes",
+    x = "Longitude",
+    y = "Latitude",
+    colour = "mm/decade"
+  )
+```
+
+```{r}
+#| label: fig-p99-frequency-map
+#| fig-width: 9
+#| fig-height: 6
+
+p99_trends <- station_trends[
+  variable == "days_above_reference_p99" & !is.na(slope_per_decade)
+]
+
+p99_limit <- quantile(abs(p99_trends$slope_per_decade), .95, na.rm = TRUE)
+
+ggplot(p99_trends, aes(longitude, latitude, colour = slope_per_decade)) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  coord_quickmap(xlim = c(112, 154), ylim = c(-44, -10)) +
+  scale_colour_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-p99_limit, p99_limit),
+    oob = squish
+  ) +
+  labs(
+    title = "Station-level trend in frequency of P99 exceedances",
+    subtitle = "Fixed station-specific 1961–1990 P99 thresholds",
+    x = "Longitude",
+    y = "Latitude",
+    colour = "days/decade"
+  )
+```
+
+# Quality-flag sensitivity diagnostics
+
+Non-zero quality flags have not been excluded in this first analysis because flag meaning has not yet been translated into a defensible climate-analysis rule. The following diagnostic identifies when and where flagged observations are common enough to warrant sensitivity analysis.
+
+```{r}
+#| label: quality-flags
+
+quality_year <- rain[, .(
+  observed_days = sum(n_observed, na.rm = TRUE),
+  nonzero_quality_flags = sum(n_nonzero_quality_flag, na.rm = TRUE)
+), by = year]
+
+quality_year[, flagged_fraction := nonzero_quality_flags / observed_days]
+
+quality_year
+```
+
+```{r}
+#| label: fig-quality-flags
+#| fig-width: 10
+#| fig-height: 4.5
+
+ggplot(quality_year, aes(year, flagged_fraction)) +
+  geom_line(linewidth = 0.7) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.1)) +
+  labs(
+    title = "Non-zero rainfall quality flags through time",
+    subtitle = "Diagnostic only; no quality-flag exclusion is imposed in this report",
+    x = "Year",
+    y = "Flagged records / observed records"
+  )
+```
+
+# Sensitivity to network period
+
+The primary analysis uses the frozen 1950–2025 network. The 1930–2025 and 1960–2025 candidate networks remain formal sensitivity networks. Their daily metrics should be generated using the same processing specification before drawing strong conclusions about spatially aggregated trends.
+
+# Outputs
+
+```{r}
+#| label: write-outputs
+
+output_dir <- file.path(
+  project_root,
+  "tables",
+  "extreme_rainfall"
+)
+
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+fwrite(integrity, file.path(output_dir, "integrity_summary.csv"))
+fwrite(threshold_distribution, file.path(output_dir, "reference_threshold_summary.csv"))
+fwrite(national_year, file.path(output_dir, "national_annual_summary.csv"))
+fwrite(contribution_year, file.path(output_dir, "extreme_rainfall_contribution.csv"))
+fwrite(station_trends, file.path(output_dir, "station_trends_ols_baseline.csv"))
+fwrite(trend_summary, file.path(output_dir, "station_trend_summary.csv"))
+fwrite(quality_year, file.path(output_dir, "quality_flag_diagnostics.csv"))
+```
+
+# Interpretation framework
+
+The first-generation analysis should be interpreted as a decomposition rather than a single national trend estimate.
+
+- A decline in wet days with increasing wet-day intensity implies redistribution toward fewer, heavier rainfall events.
+- Increasing P95/P99 exceedance frequency indicates movement of the upper tail relative to the fixed 1961–1990 climatology.
+- Increasing rainfall contribution above P95/P99 indicates concentration of annual rainfall into historically extreme events.
+- Rx1day provides a conventional extreme index but is intrinsically noisier because it uses one annual observation per station.
+- Spatial coherence matters. A national median can conceal compensating regional trends across northern, eastern, southern and southwestern Australia.
+
+# Next statistical phase
+
+The OLS station trends in this report are screening diagnostics, not the final models. The next statistical phase should fit models appropriate to each response:
+
+1. wet-day occurrence using binomial or count models;
+2. exceedance frequency using Poisson/negative-binomial or point-process models;
+3. wet-day intensity using Gamma/lognormal or quantile models;
+4. threshold exceedance magnitudes using peaks-over-threshold and Generalized Pareto models;
+5. spatial dependence using extremal dependence measures and spatial extreme-value models.
+
+The final inferential analysis should explicitly account for serial dependence, multiplicity across stations, spatial correlation and non-stationarity.

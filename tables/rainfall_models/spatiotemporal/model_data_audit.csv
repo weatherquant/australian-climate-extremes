@@ -1,0 +1,6 @@
+model,rows,stations,first_year,last_year
+wet_occurrence,53777,742,1950,2025
+p95_frequency,53777,742,1950,2025
+p99_frequency,53777,742,1950,2025
+wet_intensity,53772,742,1950,2025
+log_rx1day,53772,742,1950,2025

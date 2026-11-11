@@ -12,3 +12,10 @@ quarto::quarto_render(
 quarto::quarto_render(
   "analysis/04_rainfall_network.qmd"
 )
+
+# ------------------------------------------------------------
+# Extreme rainfall
+# ------------------------------------------------------------
+quarto::quarto_render(
+  "analysis/05_extreme_rainfall.qmd"
+)

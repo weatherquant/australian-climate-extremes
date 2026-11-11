@@ -1,0 +1,2 @@
+station_years,stations,first_year,last_year,complete_95_station_years,observed_days,valid_1day_records,excluded_1day_records,multiday_records,nonstandard_period_records,nonzero_quality_flags,missing_rx1day,excluded_fraction,nonzero_quality_fraction
+56068,742,1950,2025,53777,20219503,20164836,54667,33293,54654,865573,104,0.00270367674220281,0.0428088168141423

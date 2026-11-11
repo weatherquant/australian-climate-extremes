@@ -1,0 +1,6 @@
+response,model,effect_type,percent_change_per_decade,conf_low,conf_high,interval_excludes_zero,diagnostic_status
+Wet-day occurrence,Binomial spatial + IID,Wet-day odds,0.3920843,-0.6634762,1.458861,FALSE,PASS
+P95 exceedance frequency,Poisson spatial + AR1,Exceedance rate,0.0618356,-1.5506486,1.700731,FALSE,PASS
+P99 exceedance frequency,Poisson spatial + IID,Exceedance rate,0.4884846,-1.786361,2.816021,FALSE,PASS
+Mean wet-day intensity,Gamma spatial + AR1,Intensity,1.6617633,-0.1716904,3.5288902,FALSE,PASS
+Rx1day,Log-Gaussian spatial + AR1,Rx1day,0.23072,-0.4201044,0.8857981,FALSE,PASS

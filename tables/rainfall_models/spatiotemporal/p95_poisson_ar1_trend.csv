@@ -1,0 +1,2 @@
+term,estimate,std.error,conf.low,conf.high,rate_ratio_per_decade,percent_change_per_decade,percent_change_conf_low,percent_change_conf_high
+year_decade,0.000618165180960231,0.00828899887012312,-0.0156279740723743,0.0168643044342947,1.00061835628443,0.0618356284431521,-1.55064909538934,1.70073095793939
