@@ -1,0 +1,2 @@
+estimate_log_scale_per_decade,standard_error,conf_low_log_scale,conf_high_log_scale,scale_ratio_per_decade,percent_scale_change_per_decade,percent_change_conf_low,percent_change_conf_high,interval_excludes_zero
+-0.00141754024523369,0.0017603924812387,-0.00486784610711665,0.00203276561664927,0.998583463990369,-0.14165360096311,-0.485601734556906,0.203483308533103,FALSE

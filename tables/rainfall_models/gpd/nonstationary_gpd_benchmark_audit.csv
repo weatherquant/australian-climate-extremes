@@ -1,0 +1,2 @@
+analysis_start_year,analysis_end_year,centre_year,events,stations,accepted_quality_codes,m0_valid,m1_valid,m2_valid
+1950,2025,1987.5,84351,742,"0,1,2,3,4",TRUE,TRUE,TRUE

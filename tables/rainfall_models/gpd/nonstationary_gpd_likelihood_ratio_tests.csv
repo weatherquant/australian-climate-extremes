@@ -1,0 +1,3 @@
+comparison,likelihood_ratio,degrees_of_freedom,p_value
+M0 stationary vs M1 linear scale trend,0.648308680152695,1,0.420718020285464
+M0 stationary vs M2 three-period scale,33.6851854444612,2,4.84568210956766e-08
