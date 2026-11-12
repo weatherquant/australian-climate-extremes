@@ -26,3 +26,10 @@ quarto::quarto_render(
 quarto::quarto_render(
   "analysis/06_rainfall_pot_diagnostics.qmd"
 )
+
+# ------------------------------------------------------------
+# Rainfall GDP diagnostics
+# ------------------------------------------------------------
+quarto::quarto_render(
+  "analysis/07_rainfall_gpd_results.qmd"
+)

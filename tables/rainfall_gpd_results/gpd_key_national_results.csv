@@ -1,0 +1,8 @@
+result,value,units
+Primary stationary shape,0.14960031707862,shape
+Primary stationary scale ratio,0.386622667196837,threshold ratio
+National linear scale change per decade,-0.14165360096311,% per decade
+National linear CI low,-0.485601734556906,% per decade
+National linear CI high,0.203483308533103,% per decade
+1976-2000 vs 1950-1975 scale difference,-5.03178953454148,%
+2001-2025 vs 1950-1975 scale difference,-0.717084341387841,%

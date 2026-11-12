@@ -1,0 +1,1632 @@
+---
+title: "Extreme rainfall tail behaviour: GPD results"
+subtitle: "Stationary benchmarks, temporal variation, sensitivity and regional heterogeneity"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Purpose and scope
+
+This report consolidates the peaks-over-threshold (POT) and Generalized Pareto Distribution (GPD) analyses of Australian extreme daily rainfall over 1950–2025. It follows the POT diagnostic analysis and focuses specifically on rainfall magnitude conditional on an extreme event having occurred.
+
+The report is a results chapter, not the final synthesis of the Australian climate-extremes project. Network selection, data provenance, annual extreme indices, rainfall occurrence and intensity, and spatiotemporal GLMM results will be integrated later in the full research overview.
+
+The questions addressed here are:
+
+1. Is a stationary GPD a useful benchmark for the upper rainfall tail?
+2. Is there evidence for a monotonic change in GPD scale nationally?
+3. Is temporal variation better represented by broad multi-decadal differences rather than a linear trend?
+4. Are conclusions robust to threshold and declustering assumptions?
+5. Does national aggregation conceal different regional changes?
+6. Do the strongest regional findings persist as the threshold is increased from P95 to P99?
+
+# Setup and saved results
+
+This report reads saved result tables only. **No GPD models are refitted while rendering the report.**
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(ggplot2)
+library(scales)
+
+# ============================================================
+# Locate project root
+# ============================================================
+
+project_root <- if (
+  file.exists("_targets.R")
+) {
+
+  "."
+
+} else if (
+  file.exists("../_targets.R")
+) {
+
+  ".."
+
+} else if (
+  file.exists("renv.lock")
+) {
+
+  "."
+
+} else if (
+  file.exists("../renv.lock")
+) {
+
+  ".."
+
+} else {
+
+  stop(
+    "Could not locate the australian-climate-extremes project root.",
+    call. = FALSE
+  )
+}
+
+# ============================================================
+# Result directories
+# ============================================================
+
+model_table_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_models",
+  "gpd"
+)
+
+cat(
+  "Project root:",
+  normalizePath(
+    project_root,
+    mustWork = FALSE
+  ),
+  "\n"
+)
+
+cat(
+  "GPD table directory:",
+  normalizePath(
+    model_table_dir,
+    mustWork = FALSE
+  ),
+  "\n"
+)
+
+pot_diag_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_pot_diagnostics"
+)
+
+report_table_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_gpd_results"
+)
+
+report_figure_dir <- file.path(
+  project_root,
+  "figures",
+  "rainfall_gpd_results"
+)
+
+dir.create(
+  report_table_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+dir.create(
+  report_figure_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+dir.create(
+  report_table_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+dir.create(
+  report_figure_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+read_required <- function(path) {
+  if (!file.exists(path)) {
+    stop(
+      "Missing required results file: ",
+      path,
+      call. = FALSE
+    )
+  }
+
+  data.table::fread(path)
+}
+
+stationary_sensitivity <- read_required(
+  file.path(
+    model_table_dir,
+    "stationary_gpd_threshold_run_sensitivity.csv"
+  )
+)
+
+primary_quantile_diagnostics <- read_required(
+  file.path(
+    model_table_dir,
+    "stationary_gpd_primary_quantile_diagnostics.csv"
+  )
+)
+
+stationary_return_levels <- read_required(
+  file.path(
+    model_table_dir,
+    "stationary_gpd_return_level_summary.csv"
+  )
+)
+
+state_stationary <- read_required(
+  file.path(
+    model_table_dir,
+    "stationary_gpd_state_benchmarks.csv"
+  )
+)
+
+national_comparison <- read_required(
+  file.path(
+    model_table_dir,
+    "nonstationary_gpd_model_comparison.csv"
+  )
+)
+
+national_time_effect <- read_required(
+  file.path(
+    model_table_dir,
+    "nonstationary_gpd_linear_time_effect.csv"
+  )
+)
+
+national_periods <- read_required(
+  file.path(
+    model_table_dir,
+    "nonstationary_gpd_period_comparison.csv"
+  )
+)
+
+national_parameters <- read_required(
+  file.path(
+    model_table_dir,
+    "nonstationary_gpd_parameter_estimates.csv"
+  )
+)
+
+national_return_summary <- read_required(
+  file.path(
+    model_table_dir,
+    "nonstationary_gpd_return_level_summary.csv"
+  )
+)
+
+national_return_change <- read_required(
+  file.path(
+    model_table_dir,
+    "nonstationary_gpd_return_level_change_1960_2020.csv"
+  )
+)
+
+national_sensitivity <- read_required(
+  file.path(
+    model_table_dir,
+    "nonstationary_gpd_sensitivity_matrix_compact.csv"
+  )
+)
+
+national_sensitivity_summary <- read_required(
+  file.path(
+    model_table_dir,
+    "nonstationary_gpd_sensitivity_robustness_summary.csv"
+  )
+)
+
+regional_sample_audit <- read_required(
+  file.path(
+    model_table_dir,
+    "regional_nonstationary_gpd_sample_audit.csv"
+  )
+)
+
+regional_results <- read_required(
+  file.path(
+    model_table_dir,
+    "regional_nonstationary_gpd_results_compact.csv"
+  )
+)
+
+regional_summary <- read_required(
+  file.path(
+    model_table_dir,
+    "regional_nonstationary_gpd_summary.csv"
+  )
+)
+
+regional_threshold_sensitivity <- read_required(
+  file.path(
+    model_table_dir,
+    "regional_gpd_threshold_sensitivity_compact.csv"
+  )
+)
+
+regional_threshold_summary <- read_required(
+  file.path(
+    model_table_dir,
+    "regional_gpd_threshold_sensitivity_summary.csv"
+  )
+)
+
+# Stable ordering and labels.
+threshold_levels <- c("p95", "p975", "p99")
+threshold_labels <- c("P95", "P97.5", "P99")
+
+stationary_sensitivity[
+  ,
+  threshold := factor(
+    threshold_id,
+    levels = threshold_levels,
+    labels = threshold_labels
+  )
+]
+
+national_sensitivity[
+  ,
+  specification := factor(
+    specification,
+    levels = c(
+      "P95 / run3",
+      "P97.5 / run2",
+      "P97.5 / run3",
+      "P97.5 / run5",
+      "P99 / run3"
+    )
+  )
+]
+
+regional_results[
+  ,
+  region := factor(
+    region,
+    levels = c("NSW", "QLD", "SA", "TAS", "VIC", "WA")
+  )
+]
+
+regional_threshold_sensitivity[
+  ,
+  threshold := factor(
+    threshold_id,
+    levels = threshold_levels,
+    labels = threshold_labels
+  )
+]
+
+theme_set(
+  theme_minimal(
+    base_size = 11
+  )
+)
+```
+
+# Analysis definition
+
+## Primary POT specification
+
+The primary tail analysis is deliberately fixed before interpreting GPD time variation. It uses:
+
+- the 742-station continental rainfall network;
+- 1950–2025 observations;
+- station-specific P97.5 wet-day thresholds calculated over 1961–1990;
+- three-day runs declustering;
+- the maximum daily rainfall within each declustered event;
+- rainfall element quality codes `PRCP_QUAL` 0–4;
+- 84,351 quality-controlled extreme events.
+
+P97.5 was selected as the primary threshold because the POT diagnostics showed a useful balance between tail depth and sample size. The median station retained approximately 110 independent P97.5 events, while the GPD shape estimates and event counts were relatively insensitive to reasonable changes in declustering window.
+
+## GPD parameterisation
+
+For station \(s\), let \(u_s\) denote the station-specific threshold and \(X_i\) the declustered event maximum. The normalized excess is
+
+$$
+Y_i = \frac{X_i-u_{s(i)}}{u_{s(i)}}.
+$$
+
+The GPD is fitted to \(Y_i\), with scale expressed relative to the local threshold:
+
+$$
+Y_i \sim \mathrm{GPD}(\sigma_i, \xi).
+$$
+
+The shape parameter \(\xi\) describes upper-tail heaviness. Positive \(\xi\) implies an unbounded heavy tail.
+
+Three temporal specifications are compared:
+
+### M0: stationary scale
+
+$$
+\log \sigma = \beta_0.
+$$
+
+### M1: linear scale trend
+
+$$
+\log \sigma(t) = \beta_0 + \beta_1 t,
+$$
+
+where \(t\) is measured in decades and centred on 1987.5. Thus
+
+$$
+100\{\exp(\beta_1)-1\}
+$$
+
+is the estimated percentage change in tail scale per decade.
+
+### M2: three-period scale
+
+Separate scale parameters are estimated for:
+
+- 1950–1975;
+- 1976–2000;
+- 2001–2025.
+
+The shape parameter remains constant within each pooled fit.
+
+# Stationary GPD benchmark
+
+## Primary P97.5 fit
+
+```{r}
+#| label: primary-stationary-result
+
+primary_stationary <- stationary_sensitivity[
+  threshold_id == "p975" &
+    run_length_days == 3L
+]
+
+primary_stationary[
+  ,
+  .(
+    events,
+    stations,
+    scale_ratio,
+    scale_conf_low,
+    scale_conf_high,
+    shape,
+    shape_conf_low,
+    shape_conf_high,
+    convergence,
+    hessian_positive_definite
+  )
+]
+```
+
+The primary stationary benchmark estimates a normalized scale ratio of approximately **0.387** and a GPD shape of approximately **0.150**. The positive shape estimate indicates a heavy upper tail. Optimizer convergence and Hessian diagnostics passed.
+
+## Threshold and declustering stability
+
+```{r}
+#| label: stationary-sensitivity-table
+
+stationary_sensitivity[
+  ,
+  .(
+    threshold,
+    run_length_days,
+    events,
+    stations,
+    scale_ratio,
+    shape,
+    shape_conf_low,
+    shape_conf_high,
+    convergence,
+    hessian_positive_definite
+  )
+][
+  order(
+    threshold,
+    run_length_days
+  )
+]
+```
+
+```{r}
+#| label: fig-shape-stability
+#| fig-width: 9
+#| fig-height: 5
+
+p_shape_stability <- ggplot(
+  stationary_sensitivity,
+  aes(
+    x = factor(run_length_days),
+    y = shape,
+    colour = threshold,
+    group = threshold
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = 2,
+    colour = "grey60"
+  ) +
+  geom_line(
+    linewidth = 0.8
+  ) +
+  geom_point(
+    size = 2.5
+  ) +
+  labs(
+    title = "GPD tail shape is stable across declustering choices",
+    subtitle = "Station-specific thresholds; PRCP_QUAL 0–4",
+    x = "Runs declustering window (days)",
+    y = "GPD shape (xi)",
+    colour = "Threshold"
+  ) +
+  theme(
+    legend.position = "bottom"
+  )
+
+p_shape_stability
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_shape_threshold_declustering_stability.png"
+  ),
+  p_shape_stability,
+  width = 9,
+  height = 5,
+  dpi = 200
+)
+```
+
+For the three-day specification, shape decreases modestly from approximately 0.154 at P95 to 0.135 at P99. Within P97.5, changing from two- to five-day declustering changes the shape estimate only slightly. The positive tail shape is therefore not dependent on a single declustering choice.
+
+## Empirical versus fitted excess quantiles
+
+```{r}
+#| label: primary-quantile-table
+
+primary_quantile_diagnostics[
+  ,
+  .(
+    probability,
+    empirical_excess,
+    fitted_excess,
+    difference,
+    relative_difference
+  )
+]
+```
+
+```{r}
+#| label: fig-quantile-diagnostics
+#| fig-width: 7
+#| fig-height: 5
+
+p_quantiles <- ggplot(
+  primary_quantile_diagnostics,
+  aes(
+    x = empirical_excess,
+    y = fitted_excess
+  )
+) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_point(
+    size = 3
+  ) +
+  geom_text(
+    aes(
+      label = percent(probability, accuracy = 1)
+    ),
+    nudge_y = 0.06,
+    size = 3.3
+  ) +
+  coord_equal() +
+  labs(
+    title = "Stationary P97.5 GPD closely reproduces upper-tail quantiles",
+    x = "Empirical normalized excess",
+    y = "Fitted normalized excess"
+  )
+
+p_quantiles
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_primary_quantile_diagnostics.png"
+  ),
+  p_quantiles,
+  width = 7,
+  height = 5,
+  dpi = 200
+)
+```
+
+The fitted P97.5 GPD reproduces the empirical upper-tail quantiles closely. The discrepancy is around 1% at the P95–P99 excess quantiles, supporting its use as the stationary benchmark.
+
+## Stationary return levels
+
+```{r}
+#| label: stationary-return-levels
+
+stationary_return_levels[
+  return_period_years %in% c(10, 20, 50, 100),
+  .(
+    return_period_years,
+    stations,
+    median_return_level_mm,
+    q10_return_level_mm,
+    q90_return_level_mm,
+    minimum_return_level_mm,
+    maximum_return_level_mm
+  )
+]
+```
+
+Return levels vary substantially across the network because Australian rainfall climates and station thresholds vary strongly in space. A single national millimetre return level should therefore not be interpreted as representative of all locations.
+
+# National temporal behaviour
+
+## M0 versus M1 versus M2
+
+```{r}
+#| label: national-model-comparison
+
+national_comparison[
+  ,
+  .(
+    model,
+    observations,
+    parameters,
+    log_likelihood,
+    AIC,
+    delta_AIC,
+    convergence,
+    hessian_positive_definite,
+    fit_valid
+  )
+]
+```
+
+```{r}
+#| label: fig-national-aic
+#| fig-width: 8
+#| fig-height: 4.5
+
+national_aic_plot <- copy(national_comparison)
+
+national_aic_plot[
+  ,
+  model_label := fifelse(
+    grepl("M0", model),
+    "M0 stationary",
+    fifelse(
+      grepl("M1", model),
+      "M1 linear trend",
+      "M2 three periods"
+    )
+  )
+]
+
+national_aic_plot[
+  ,
+  model_label := factor(
+    model_label,
+    levels = c(
+      "M0 stationary",
+      "M1 linear trend",
+      "M2 three periods"
+    )
+  )
+]
+
+p_aic <- ggplot(
+  national_aic_plot,
+  aes(
+    x = model_label,
+    y = delta_AIC
+  )
+) +
+  geom_col() +
+  geom_hline(
+    yintercept = 2,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  labs(
+    title = "Three-period model is preferred nationally",
+    x = NULL,
+    y = "Delta AIC from best model"
+  )
+
+p_aic
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_national_model_comparison.png"
+  ),
+  p_aic,
+  width = 8,
+  height = 4.5,
+  dpi = 200
+)
+```
+
+M1 does not materially improve the stationary model. In contrast, M2 is strongly preferred, with an AIC advantage of approximately 30 relative to M0.
+
+## Linear trend in national tail scale
+
+```{r}
+#| label: national-linear-trend
+
+national_time_effect
+```
+
+The estimated national scale change is approximately **−0.14% per decade**, with a 95% interval spanning approximately **−0.49% to +0.20% per decade**. The interval includes zero and the M0-versus-M1 likelihood comparison does not support a monotonic trend.
+
+The appropriate interpretation is therefore:
+
+> There is little evidence for a monotonic national change in the conditional magnitude of P97.5 extreme-rainfall events over 1950–2025.
+
+This statement applies to conditional exceedance magnitude. It does not imply that all aspects of Australian extreme rainfall are temporally stationary.
+
+## Multi-decadal period structure
+
+```{r}
+#| label: national-period-table
+
+national_periods
+```
+
+```{r}
+#| label: national-period-parameters
+
+national_period_scale <- national_parameters[
+  grepl("scale_ratio_", term) &
+    grepl("M2", model)
+]
+
+national_period_scale[
+  ,
+  period := fcase(
+    grepl("1950_1975", term), "1950–1975",
+    grepl("1976_2000", term), "1976–2000",
+    grepl("2001_2025", term), "2001–2025",
+    default = term
+  )
+]
+
+national_period_scale[
+  ,
+  period := factor(
+    period,
+    levels = c(
+      "1950–1975",
+      "1976–2000",
+      "2001–2025"
+    )
+  )
+]
+
+national_period_scale[
+  ,
+  .(
+    period,
+    estimate,
+    conf_low,
+    conf_high
+  )
+]
+```
+
+```{r}
+#| label: fig-national-periods
+#| fig-width: 8
+#| fig-height: 4.8
+
+p_period <- ggplot(
+  national_period_scale,
+  aes(
+    x = period,
+    y = estimate,
+    group = 1
+  )
+) +
+  geom_line(
+    linewidth = 0.8
+  ) +
+  geom_point(
+    size = 2.7
+  ) +
+  geom_errorbar(
+    aes(
+      ymin = conf_low,
+      ymax = conf_high
+    ),
+    width = 0.12
+  ) +
+  labs(
+    title = "National GPD scale shows a mid-period minimum",
+    subtitle = "P97.5 threshold; 3-day declustering",
+    x = NULL,
+    y = "Normalized GPD scale"
+  )
+
+p_period
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_national_three_period_scale.png"
+  ),
+  p_period,
+  width = 8,
+  height = 4.8,
+  dpi = 200
+)
+```
+
+Relative to 1950–1975, the national scale is approximately **5% lower during 1976–2000**, but only approximately **0.7% lower during 2001–2025**. The national temporal signal is therefore better described as multi-decadal variation than as a monotonic trend.
+
+# National sensitivity analysis
+
+## Threshold and declustering matrix
+
+```{r}
+#| label: national-sensitivity-table
+
+national_sensitivity[
+  ,
+  .(
+    specification,
+    events,
+    stations,
+    shape,
+    linear_change_pct_decade,
+    linear_ci_low,
+    linear_ci_high,
+    linear_LR_p,
+    linear_delta_AIC,
+    middle_vs_early_pct,
+    recent_vs_early_pct,
+    period_LR_p,
+    period_delta_AIC,
+    all_models_valid
+  )
+]
+```
+
+```{r}
+#| label: fig-national-linear-sensitivity
+#| fig-width: 9
+#| fig-height: 5
+
+p_linear_sensitivity <- ggplot(
+  national_sensitivity,
+  aes(
+    y = specification,
+    x = linear_change_pct_decade,
+    xmin = linear_ci_low,
+    xmax = linear_ci_high
+  )
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_errorbarh(
+    height = 0.2
+  ) +
+  geom_point(
+    size = 2.6
+  ) +
+  labs(
+    title = "National linear tail-scale trend is weak across sensitivities",
+    x = "Scale change per decade (%)",
+    y = NULL
+  )
+
+p_linear_sensitivity
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_national_linear_sensitivity.png"
+  ),
+  p_linear_sensitivity,
+  width = 9,
+  height = 5,
+  dpi = 200
+)
+```
+
+```{r}
+#| label: fig-national-period-sensitivity
+#| fig-width: 9
+#| fig-height: 5
+
+period_sensitivity_long <- rbindlist(
+  list(
+    national_sensitivity[
+      ,
+      .(
+        specification,
+        period = "1976–2000 vs 1950–1975",
+        percent_difference = middle_vs_early_pct
+      )
+    ],
+    national_sensitivity[
+      ,
+      .(
+        specification,
+        period = "2001–2025 vs 1950–1975",
+        percent_difference = recent_vs_early_pct
+      )
+    ]
+  )
+)
+
+p_period_sensitivity <- ggplot(
+  period_sensitivity_long,
+  aes(
+    x = specification,
+    y = percent_difference,
+    colour = period,
+    group = period
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_line(
+    linewidth = 0.7
+  ) +
+  geom_point(
+    size = 2.5
+  ) +
+  labs(
+    title = "Mid-period reduction and recent recovery are sensitivity-robust",
+    x = NULL,
+    y = "Scale difference from 1950–1975 (%)",
+    colour = NULL
+  ) +
+  theme(
+    axis.text.x = element_text(
+      angle = 30,
+      hjust = 1
+    ),
+    legend.position = "bottom"
+  )
+
+p_period_sensitivity
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_national_period_sensitivity.png"
+  ),
+  p_period_sensitivity,
+  width = 9,
+  height = 5,
+  dpi = 200
+)
+```
+
+All five sensitivity specifications pass model validation. Four of five show no clear linear trend. P95/run-3 alone indicates a small decline. In contrast, every specification gives a lower 1976–2000 scale and a recent period closer to the early period than the middle period. M2 is preferred over M0 under all five specifications.
+
+The isolated P95 linear decline is therefore treated as lower-threshold sensitivity rather than the principal national result.
+
+# Regional heterogeneity
+
+## Regional sample adequacy
+
+```{r}
+#| label: regional-sample-table
+
+regional_sample_audit[
+  order(state)
+]
+```
+
+The Northern Territory remains in the audit but is not fitted in the primary regional models because it contains fewer than the prespecified 500 total events. This criterion is not relaxed after seeing the results.
+
+## Regional stationary tail shape
+
+```{r}
+#| label: regional-shape-table
+
+state_stationary[
+  order(state),
+  .(
+    state,
+    events,
+    stations,
+    scale_ratio,
+    shape,
+    shape_conf_low,
+    shape_conf_high
+  )
+]
+```
+
+```{r}
+#| label: fig-regional-shape
+#| fig-width: 8
+#| fig-height: 5
+
+p_regional_shape <- ggplot(
+  state_stationary,
+  aes(
+    y = reorder(state, shape),
+    x = shape,
+    xmin = shape_conf_low,
+    xmax = shape_conf_high
+  )
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_errorbarh(
+    height = 0.2
+  ) +
+  geom_point(
+    size = 2.6
+  ) +
+  labs(
+    title = "Regional tail shape varies materially",
+    subtitle = "Stationary P97.5 / 3-day benchmark",
+    x = "GPD shape (xi)",
+    y = NULL
+  )
+
+p_regional_shape
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_regional_stationary_shape.png"
+  ),
+  p_regional_shape,
+  width = 8,
+  height = 5,
+  dpi = 200
+)
+```
+
+The pooled regional shape estimates range from approximately **0.117 in NSW** to approximately **0.204 in WA**. A single national shape is therefore useful as a benchmark but does not capture all geographic tail differences.
+
+## Regional linear trends
+
+```{r}
+#| label: regional-linear-table
+
+regional_results[
+  ,
+  .(
+    region,
+    events,
+    stations,
+    shape,
+    linear_change_pct_decade,
+    linear_ci_low,
+    linear_ci_high,
+    m1_LR_p,
+    m1_delta_AIC_vs_m0,
+    all_models_valid
+  )
+]
+```
+
+```{r}
+#| label: fig-regional-linear
+#| fig-width: 8
+#| fig-height: 5.5
+
+p_regional_linear <- ggplot(
+  regional_results,
+  aes(
+    y = region,
+    x = linear_change_pct_decade,
+    xmin = linear_ci_low,
+    xmax = linear_ci_high
+  )
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_errorbarh(
+    height = 0.2
+  ) +
+  geom_point(
+    size = 2.8
+  ) +
+  labs(
+    title = "Nationally flat tail-scale trends conceal regional differences",
+    subtitle = "P97.5 / 3-day model; conditional event magnitude",
+    x = "GPD scale change per decade (%)",
+    y = NULL
+  )
+
+p_regional_linear
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_regional_linear_trends.png"
+  ),
+  p_regional_linear,
+  width = 8,
+  height = 5.5,
+  dpi = 200
+)
+```
+
+The regional analysis changes the interpretation of the near-zero national trend. NSW shows a clear decline of approximately **−2.83% per decade**, while Victoria shows a clear increase of approximately **+1.67% per decade**. Queensland, South Australia, Tasmania and Western Australia do not show clearly resolved linear trends under the primary pooled regional model.
+
+Thus the national near-zero coefficient should not be interpreted as regional uniformity. It partly reflects aggregation of opposing regional changes.
+
+## Regional three-period behaviour
+
+```{r}
+#| label: fig-regional-periods
+#| fig-width: 10
+#| fig-height: 6
+
+regional_period_long <- rbindlist(
+  list(
+    regional_results[
+      ,
+      .(
+        region,
+        comparison = "1976–2000 vs 1950–1975",
+        percent_difference = middle_vs_early_pct
+      )
+    ],
+    regional_results[
+      ,
+      .(
+        region,
+        comparison = "2001–2025 vs 1950–1975",
+        percent_difference = recent_vs_early_pct
+      )
+    ]
+  )
+)
+
+p_regional_periods <- ggplot(
+  regional_period_long,
+  aes(
+    x = region,
+    y = percent_difference,
+    colour = comparison,
+    group = comparison
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_line(
+    linewidth = 0.7
+  ) +
+  geom_point(
+    size = 2.5
+  ) +
+  labs(
+    title = "Three-period behaviour differs substantially by region",
+    x = NULL,
+    y = "Scale difference from 1950–1975 (%)",
+    colour = NULL
+  ) +
+  theme(
+    legend.position = "bottom"
+  )
+
+p_regional_periods
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_regional_three_period_changes.png"
+  ),
+  p_regional_periods,
+  width = 10,
+  height = 6,
+  dpi = 200
+)
+```
+
+### NSW
+
+NSW exhibits persistent reduction in conditional extreme-rainfall magnitude. The recent-period scale is approximately **12.6% below 1950–1975** under the primary specification. This is not the national pattern of mid-period decline followed by recovery.
+
+### Victoria
+
+Victoria exhibits the opposite behaviour. The scale is lower during 1976–2000 but approximately **10.7% above 1950–1975 during 2001–2025**. This is consistent with the positive linear trend in the regional model.
+
+### Queensland
+
+Queensland shows no robust linear trend, but the scale is approximately **7.6% lower during 1976–2000** and approximately **2.1% above the early period during 2001–2025**. This is the clearest regional expression of the national multi-decadal pattern.
+
+### South Australia, Tasmania and Western Australia
+
+These regions do not show clear support for temporal scale change under the tested pooled models. Western Australia remains notable for its comparatively heavy stationary tail shape despite little evidence for scale change through time.
+
+# Regional threshold robustness
+
+The strongest regional findings are tested at P95, P97.5 and P99 while retaining three-day declustering.
+
+```{r}
+#| label: regional-threshold-table
+
+regional_threshold_sensitivity[
+  order(
+    region,
+    threshold
+  ),
+  .(
+    region,
+    threshold,
+    events,
+    stations,
+    shape,
+    linear_change_pct_decade,
+    linear_ci_low,
+    linear_ci_high,
+    linear_LR_p,
+    linear_delta_AIC,
+    middle_vs_early_pct,
+    recent_vs_early_pct,
+    period_LR_p,
+    period_delta_AIC,
+    all_models_valid
+  )
+]
+```
+
+```{r}
+#| label: fig-regional-threshold-linear
+#| fig-width: 10
+#| fig-height: 6
+
+p_regional_threshold_linear <- ggplot(
+  regional_threshold_sensitivity,
+  aes(
+    x = threshold,
+    y = linear_change_pct_decade,
+    ymin = linear_ci_low,
+    ymax = linear_ci_high,
+    group = region,
+    colour = region
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_line(
+    linewidth = 0.8
+  ) +
+  geom_errorbar(
+    width = 0.12
+  ) +
+  geom_point(
+    size = 2.6
+  ) +
+  labs(
+    title = "NSW and Victorian trends persist as the threshold increases",
+    x = "Threshold",
+    y = "GPD scale change per decade (%)",
+    colour = "Region"
+  ) +
+  theme(
+    legend.position = "bottom"
+  )
+
+p_regional_threshold_linear
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_regional_threshold_linear_sensitivity.png"
+  ),
+  p_regional_threshold_linear,
+  width = 10,
+  height = 6,
+  dpi = 200
+)
+```
+
+```{r}
+#| label: fig-regional-threshold-period
+#| fig-width: 10
+#| fig-height: 6
+
+regional_threshold_period_long <- rbindlist(
+  list(
+    regional_threshold_sensitivity[
+      ,
+      .(
+        region,
+        threshold,
+        period = "1976–2000 vs early",
+        percent_difference = middle_vs_early_pct
+      )
+    ],
+    regional_threshold_sensitivity[
+      ,
+      .(
+        region,
+        threshold,
+        period = "2001–2025 vs early",
+        percent_difference = recent_vs_early_pct
+      )
+    ]
+  )
+)
+
+p_regional_threshold_period <- ggplot(
+  regional_threshold_period_long,
+  aes(
+    x = threshold,
+    y = percent_difference,
+    colour = period,
+    group = period
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_line(
+    linewidth = 0.7
+  ) +
+  geom_point(
+    size = 2.4
+  ) +
+  facet_wrap(
+    ~ region,
+    nrow = 1
+  ) +
+  labs(
+    title = "Regional period contrasts are broadly stable across thresholds",
+    x = "Threshold",
+    y = "Scale difference from early period (%)",
+    colour = NULL
+  ) +
+  theme(
+    legend.position = "bottom"
+  )
+
+p_regional_threshold_period
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_regional_threshold_period_sensitivity.png"
+  ),
+  p_regional_threshold_period,
+  width = 10,
+  height = 6,
+  dpi = 200
+)
+```
+
+## NSW
+
+The decline is robust as the threshold increases:
+
+- P95: approximately **−2.46% per decade**;
+- P97.5: approximately **−2.83% per decade**;
+- P99: approximately **−2.92% per decade**.
+
+The recent period remains approximately 11–13% below 1950–1975 across the three thresholds.
+
+## Victoria
+
+The increase is also robust:
+
+- P95: approximately **+1.28% per decade**;
+- P97.5: approximately **+1.67% per decade**;
+- P99: approximately **+1.82% per decade**.
+
+The recent period moves from approximately 7% above the early period at P95 to approximately 13% above at P99.
+
+## Queensland
+
+Queensland shows no clear linear trend at P95, P97.5 or P99. The middle-period reduction remains directionally consistent across thresholds. Evidence for M2 weakens at P99, where the event sample is smaller, but the fitted temporal pattern does not reverse.
+
+# Return-level implications
+
+## National linear benchmark
+
+```{r}
+#| label: national-return-levels-time
+
+national_return_summary[
+  ,
+  .(
+    model_year,
+    return_period_years,
+    stations,
+    median_return_level_mm,
+    q10_return_level_mm,
+    q90_return_level_mm
+  )
+][
+  order(
+    return_period_years,
+    model_year
+  )
+]
+```
+
+```{r}
+#| label: national-return-change
+
+national_return_change
+```
+
+```{r}
+#| label: fig-national-return-change
+#| fig-width: 8
+#| fig-height: 4.8
+
+p_return_change <- ggplot(
+  national_return_change,
+  aes(
+    x = factor(return_period_years),
+    y = percent_change
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_col() +
+  labs(
+    title = "National linear model implies little return-level change",
+    subtitle = "Median station change from 1960 to 2020",
+    x = "Return period (years)",
+    y = "Change (%)"
+  )
+
+p_return_change
+
+ggsave(
+  file.path(
+    report_figure_dir,
+    "gpd_national_return_level_change.png"
+  ),
+  p_return_change,
+  width = 8,
+  height = 4.8,
+  dpi = 200
+)
+```
+
+Because the fitted national M1 trend is close to zero, its return-level changes are also small. The median estimated 100-year level changes from approximately **132.7 mm in 1960** to **131.9 mm in 2020**, a change of roughly **−0.6%**.
+
+These return levels combine station-specific thresholds, station-specific empirical event rates and a pooled magnitude model. They are benchmark summaries, not final spatial return-level maps.
+
+# Limitations
+
+## Cross-station dependence
+
+This is the principal inferential limitation of the current pooled GPD analysis. A single tropical cyclone, east-coast low, frontal system or other widespread weather event can generate extreme rainfall at multiple stations. The pooled likelihood nevertheless treats event magnitudes as conditionally independent.
+
+Consequently, nominal standard errors and likelihood-ratio evidence may be too optimistic. The most defensible evidence is therefore the **direction, magnitude and cross-threshold consistency** of the fitted effects rather than the smallest nominal p-values.
+
+## Spatial heterogeneity within states
+
+State pooling does not resolve potentially substantial within-state variation, particularly across NSW, Queensland and Western Australia. Regional estimates should therefore not be interpreted as spatially uniform local trends.
+
+## Threshold uncertainty
+
+The station-specific 1961–1990 thresholds are estimated quantities but are treated as fixed in the GPD likelihoods. Threshold-estimation uncertainty is not propagated into the reported intervals.
+
+## Event frequency and magnitude are modelled separately
+
+This report models the distribution of event magnitude conditional on threshold exceedance. Event occurrence has been analysed separately. Return-level calculations use empirical station event rates rather than a fully joint non-stationary frequency–magnitude model.
+
+## Temporal model form
+
+Non-stationarity is represented either as a linear scale trend or as three broad climate periods. Smooth nonlinear temporal variation, regime-linked covariates and abrupt change points have not been estimated.
+
+# Integrated EVT findings
+
+The results support the following conservative conclusions.
+
+1. **The upper rainfall tail is heavy and is well described by a stationary P97.5 GPD benchmark.** The primary pooled shape estimate is approximately 0.15, and upper-tail empirical quantiles are closely reproduced.
+
+2. **There is little evidence for a monotonic national change in conditional extreme-event magnitude.** The primary linear scale estimate is approximately −0.14% per decade and its interval includes zero.
+
+3. **National temporal variation is better described as multi-decadal variability than as a linear trend.** Tail scale is approximately 5% lower during 1976–2000 than during 1950–1975, followed by recovery during 2001–2025 toward the early-period level.
+
+4. **This national period structure is robust to reasonable threshold and declustering choices.** All five tested national sensitivity specifications favour the three-period model over stationarity.
+
+5. **The national average conceals pronounced regional heterogeneity.** NSW has a robust declining scale trend, while Victoria has a robust increasing trend.
+
+6. **NSW's decline persists from P95 through P99.** The estimated scale change ranges from roughly −2.5% to −2.9% per decade across thresholds.
+
+7. **Victoria's increase also persists from P95 through P99.** The estimated scale change ranges from roughly +1.3% to +1.8% per decade and is larger at the higher thresholds.
+
+8. **Queensland exhibits multi-decadal variation rather than a monotonic trend.** A lower middle-period scale is followed by recovery toward or slightly above early-period levels.
+
+9. **Western Australia has a comparatively heavy upper tail but little evidence for temporal scale change.** Its stationary regional shape estimate is materially larger than that for NSW.
+
+10. **Regional uncertainty remains provisional because cross-station dependence has not been explicitly modelled.** The regional effect directions and threshold robustness are more persuasive than nominal pooled p-values alone.
+
+# Key results for the final research overview
+
+The following compact tables are written for later use by `analysis/99_research_overview.qmd`.
+
+```{r}
+#| label: overview-outputs
+
+key_national_results <- data.table(
+  result = c(
+    "Primary stationary shape",
+    "Primary stationary scale ratio",
+    "National linear scale change per decade",
+    "National linear CI low",
+    "National linear CI high",
+    "1976-2000 vs 1950-1975 scale difference",
+    "2001-2025 vs 1950-1975 scale difference"
+  ),
+  value = c(
+    primary_stationary$shape[1],
+    primary_stationary$scale_ratio[1],
+    national_time_effect$percent_scale_change_per_decade[1],
+    national_time_effect$percent_change_conf_low[1],
+    national_time_effect$percent_change_conf_high[1],
+    national_periods$percent_scale_difference[
+      grepl("1976", national_periods$comparison)
+    ][1],
+    national_periods$percent_scale_difference[
+      grepl("2001", national_periods$comparison)
+    ][1]
+  ),
+  units = c(
+    "shape",
+    "threshold ratio",
+    "% per decade",
+    "% per decade",
+    "% per decade",
+    "%",
+    "%"
+  )
+)
+
+key_regional_results <- regional_results[
+  ,
+  .(
+    region,
+    events,
+    stations,
+    shape,
+    linear_change_pct_decade,
+    linear_ci_low,
+    linear_ci_high,
+    middle_vs_early_pct,
+    recent_vs_early_pct,
+    m1_delta_AIC_vs_m0,
+    m2_delta_AIC_vs_m0
+  )
+]
+
+gpd_sensitivity_summary <- national_sensitivity[
+  ,
+  .(
+    specification,
+    events,
+    shape,
+    linear_change_pct_decade,
+    linear_ci_low,
+    linear_ci_high,
+    middle_vs_early_pct,
+    recent_vs_early_pct,
+    linear_delta_AIC,
+    period_delta_AIC,
+    all_models_valid
+  )
+]
+
+gpd_return_level_summary <- national_return_summary[
+  ,
+  .(
+    model_year,
+    return_period_years,
+    stations,
+    median_return_level_mm,
+    q10_return_level_mm,
+    q90_return_level_mm
+  )
+]
+
+fwrite(
+  key_national_results,
+  file.path(
+    report_table_dir,
+    "gpd_key_national_results.csv"
+  )
+)
+
+fwrite(
+  key_regional_results,
+  file.path(
+    report_table_dir,
+    "gpd_key_regional_results.csv"
+  )
+)
+
+fwrite(
+  gpd_sensitivity_summary,
+  file.path(
+    report_table_dir,
+    "gpd_sensitivity_summary.csv"
+  )
+)
+
+fwrite(
+  gpd_return_level_summary,
+  file.path(
+    report_table_dir,
+    "gpd_return_level_summary.csv"
+  )
+)
+
+key_national_results
+key_regional_results
+```
+
+# Decision point for further modelling
+
+The primary EVT questions about monotonic national change, multi-decadal variability and broad regional heterogeneity have now been addressed with extensive threshold and declustering sensitivity testing.
+
+The major unresolved statistical issue is cross-station dependence. Before moving to a large spatial extreme-value model, the practical question is whether explicit dependence modelling would materially change the scientific conclusions or is required mainly for uncertainty calibration.
+
+A sensible next inferential step, if tighter uncertainty calibration is needed, is likely a temporal or weather-event block bootstrap that preserves spatially coherent events. That approach can directly test whether the NSW decline and Victorian increase remain clearly resolved when common-event dependence is respected, without immediately introducing another expensive national latent-field model.
