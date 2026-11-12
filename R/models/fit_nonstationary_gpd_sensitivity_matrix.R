@@ -41,7 +41,9 @@ all_events_file <- file.path(
 )
 
 helper_file <- file.path(
-  "R", "models", "fit_nonstationary_gpd_benchmark.R"
+  "R",
+  "models",
+  "gpd_helpers.R"
 )
 
 output_dir <- file.path(
@@ -62,10 +64,9 @@ if (!file.exists(helper_file)) {
 # Load functions without rerunning the primary benchmark
 # ------------------------------------------------------------
 
-Sys.setenv(GPD_FUNCTIONS_ONLY = "true")
-on.exit(Sys.unsetenv("GPD_FUNCTIONS_ONLY"), add = TRUE)
-source(helper_file)
-Sys.unsetenv("GPD_FUNCTIONS_ONLY")
+source(
+  helper_file
+)
 
 required_functions <- c(
   "fit_gpd_m0", "fit_gpd_m1", "fit_gpd_m2",

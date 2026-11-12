@@ -1,0 +1,4 @@
+region,specifications,all_models_valid,linear_increases,linear_decreases,linear_unclear,period_models_preferred,middle_lower_count,recent_above_early_count,min_linear_change_pct_decade,max_linear_change_pct_decade,min_shape,max_shape
+NSW,3,TRUE,0,3,0,3,3,0,-2.92434633144432,-2.46261885541035,0.108607272222745,0.126698896219176
+QLD,3,TRUE,0,0,3,2,3,2,-0.201053286986042,0.519734152905182,0.11456201577744,0.166450407578806
+VIC,3,TRUE,3,0,0,3,3,3,1.27586268217801,1.82486539571036,0.139177840963621,0.145220568572045

@@ -1,0 +1,2 @@
+regions_fitted,regions_all_models_valid,regions_no_linear_trend,regions_with_preferred_linear_trend,regions_preferring_m2,regions_with_lower_middle_period,regions_with_recent_recovery,regions_recent_above_early,minimum_shape,maximum_shape,minimum_linear_change_pct_decade,maximum_linear_change_pct_decade
+6,6,4,2,3,5,2,4,0.116887298608928,0.203584202835689,-2.83296265459638,1.67487152119301
