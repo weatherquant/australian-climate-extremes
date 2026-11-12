@@ -1,0 +1,2 @@
+n_bootstrap,block_length_years,random_seed,regions,total_elapsed_seconds,total_elapsed_minutes,m1_success_fraction,m2_success_fraction,completed_at
+50,3,20261112,"NSW,QLD,VIC",1528.7,25.4783333333333,1,1,2026-11-12 11:32:15

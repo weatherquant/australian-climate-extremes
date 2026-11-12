@@ -1,0 +1,481 @@
+---
+title: "Extreme rainfall dependence sensitivity"
+subtitle: "Dependence-aware uncertainty for regional GPD temporal signals"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Purpose
+
+The pooled regional GPD analyses identified strong and threshold-robust temporal signals in New South Wales and Victoria, and multi-decadal variation in Queensland. However, the likelihood models treat station-event magnitudes as conditionally independent. Extreme rainfall at multiple stations can arise from the same large-scale weather system, so nominal likelihood standard errors may be too small.
+
+This report evaluates whether the principal regional GPD conclusions remain supported when uncertainty is estimated using common temporal blocks that preserve much of the cross-station dependence within widespread rainfall events.
+
+# Questions
+
+1. Does the NSW decline remain clearly negative under dependence-aware resampling?
+2. Does the Victorian increase remain clearly positive?
+3. Does Queensland remain better described by multi-decadal variation than a monotonic trend?
+4. How much wider are dependence-aware uncertainty intervals than the pooled likelihood intervals?
+5. Are conclusions sensitive to block length?
+
+# Primary analysis definition
+
+Use the already frozen EVT specification:
+
+- P97.5 station-specific wet-day threshold;
+- 1961–1990 threshold reference period;
+- 3-day runs declustering;
+- PRCP_QUAL 0–4;
+- 1950–2025;
+- regions: NSW, QLD and VIC.
+
+The report does not change threshold selection, declustering or quality control.
+
+# Dependence-aware strategy
+
+## Recommended primary bootstrap
+
+Use a **moving temporal block bootstrap by calendar year**, with all station events from sampled years carried together.
+
+Primary design:
+
+- block length: 3 years;
+- bootstrap replicates: 200 initially;
+- resample the sequence of years with replacement using contiguous 3-year blocks;
+- retain all regional station events falling in each sampled year;
+- reconstruct bootstrap time using the sampled block positions so M1 retains a valid temporal covariate;
+- preserve the original climate-period label for M2 only when the bootstrap design explicitly resamples within climate periods, otherwise use a period-stratified bootstrap for M2.
+
+A simple year-wise iid bootstrap is retained as a sensitivity case, but the 3-year block bootstrap is primary because Australian rainfall has substantial interannual persistence related to large-scale climate modes.
+
+## M1 and M2 require different resampling logic
+
+### M1 linear trend
+
+Use ordered moving blocks across the full 1950–2025 sequence. When a block is sampled into a new bootstrap position, map its events to the corresponding bootstrap years. This tests trend uncertainty while preserving within-block spatial dependence and short temporal persistence.
+
+### M2 three-period model
+
+Use **period-stratified block resampling** so that each bootstrap replicate preserves the three fixed comparison periods:
+
+- 1950–1975;
+- 1976–2000;
+- 2001–2025.
+
+Within each period, sample contiguous year blocks and retain all station events from those years together. This preserves the estimand: scale differences between the same historical periods.
+
+# Computational staging
+
+Do not jump immediately to 1,000 replicates.
+
+## Stage 1: pilot
+
+Run:
+
+```text
+regions: NSW, QLD, VIC
+replicates: 50
+block length: 3 years
+models: M1 and M2 only
+```
+
+Check:
+
+- failed-fit rate;
+- runtime;
+- coefficient distributions;
+- whether results are grossly unstable.
+
+## Stage 2: primary
+
+If the pilot is stable:
+
+```text
+replicates: 200
+block length: 3 years
+```
+
+This should be sufficient for approximate 95% percentile intervals while remaining computationally manageable.
+
+## Stage 3: block-length sensitivity
+
+Only if needed, repeat with:
+
+```text
+1-year blocks
+5-year blocks
+```
+
+Use 100–200 replicates for each sensitivity rather than a very large bootstrap.
+
+# Input products
+
+The eventual runnable report should read saved bootstrap outputs rather than performing bootstrap fitting during Quarto rendering.
+
+Expected files:
+
+```text
+data-derived/rainfall/models/gpd/
+  regional_gpd_dependence_bootstrap.rds
+
+tables/rainfall_models/gpd/
+  regional_gpd_dependence_bootstrap_summary.csv
+  regional_gpd_dependence_bootstrap_m1.csv
+  regional_gpd_dependence_bootstrap_m2.csv
+  regional_gpd_dependence_block_sensitivity.csv
+```
+
+# Setup
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(ggplot2)
+library(scales)
+
+project_root <- if (file.exists("_targets.R")) {
+  "."
+} else if (file.exists("../_targets.R")) {
+  ".."
+} else if (file.exists("renv.lock")) {
+  "."
+} else if (file.exists("../renv.lock")) {
+  ".."
+} else {
+  stop("Could not locate project root.", call. = FALSE)
+}
+
+model_table_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_models",
+  "gpd"
+)
+
+output_table_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_gpd_dependence"
+)
+
+output_figure_dir <- file.path(
+  project_root,
+  "figures",
+  "rainfall_gpd_dependence"
+)
+
+dir.create(output_table_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(output_figure_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+# Baseline pooled estimates
+
+Bring forward only the primary P97.5/run-3 regional estimates from the saved regional results.
+
+The report should reproduce:
+
+```text
+NSW  approximately -2.83% scale/decade
+VIC  approximately +1.67% scale/decade
+QLD  approximately +0.42% scale/decade, uncertain
+```
+
+and M2 period contrasts:
+
+```text
+NSW: middle below early; recent substantially below early
+QLD: middle below early; recent near/slightly above early
+VIC: middle below early; recent substantially above early
+```
+
+These are the reference estimates against which bootstrap uncertainty is compared.
+
+# Bootstrap diagnostics
+
+## Replicate success
+
+Report by region/model/block length:
+
+- requested replicates;
+- successful replicates;
+- failed fits;
+- success percentage;
+- median optimizer convergence status;
+- occurrence of non-positive-definite Hessians.
+
+Target:
+
+```text
+>= 95% successful replicates
+```
+
+If success falls below 95%, diagnose before interpreting percentile intervals.
+
+## Bootstrap parameter distributions
+
+For M1, plot bootstrap distributions of:
+
+```text
+% scale change per decade
+```
+
+with:
+
+- original pooled estimate;
+- zero-change reference line;
+- 2.5 and 97.5 percentile interval.
+
+Recommended facets:
+
+```text
+NSW | QLD | VIC
+```
+
+# Dependence-aware M1 results
+
+Core summary table:
+
+| Region | Pooled estimate | Pooled 95% CI | Block-bootstrap median | Bootstrap 95% interval | Sign stable? |
+|---|---:|---:|---:|---:|---|
+| NSW | -2.83% | ... | ... | ... | ... |
+| QLD | +0.42% | ... | ... | ... | ... |
+| VIC | +1.67% | ... | ... | ... | ... |
+
+Primary interpretation thresholds:
+
+### NSW
+
+Strong dependence-aware support if:
+
+```text
+bootstrap upper 95% bound < 0
+```
+
+### Victoria
+
+Strong dependence-aware support if:
+
+```text
+bootstrap lower 95% bound > 0
+```
+
+### Queensland
+
+Expect the M1 interval to span zero. The purpose is primarily to confirm that dependence adjustment does not create evidence for a monotonic trend.
+
+# Dependence-aware M2 results
+
+For each region estimate bootstrap distributions for:
+
+```text
+1976-2000 vs 1950-1975 scale difference (%)
+2001-2025 vs 1950-1975 scale difference (%)
+```
+
+Recommended plot:
+
+```text
+facet rows = region
+colour = period comparison
+x = bootstrap percent difference
+vertical line = zero
+```
+
+Key questions:
+
+## NSW
+
+Does the recent-period deficit remain below zero after dependence-aware resampling?
+
+## Queensland
+
+Does the middle-period deficit remain below zero, while the recent period remains compatible with the early period?
+
+## Victoria
+
+Does the recent-period increase remain above zero?
+
+# Variance inflation from dependence
+
+Quantify how much the pooled likelihood understates uncertainty.
+
+For M1 calculate, for each region:
+
+$$
+\text{inflation ratio} =
+\frac{\text{bootstrap standard deviation}}{\text{pooled model standard error}}.
+$$
+
+Interpretation guide:
+
+```text
+~1.0       little practical dependence inflation
+1.0-1.5    modest inflation
+1.5-2.0    substantial inflation
+>2.0       strong indication pooled likelihood is overconfident
+```
+
+Do not treat these cut-offs as formal statistical tests. They are descriptive diagnostics.
+
+# Block-length sensitivity
+
+Compare 1-, 3- and 5-year blocks for the principal quantities:
+
+```text
+NSW M1 trend
+VIC M1 trend
+QLD M2 middle-vs-early
+```
+
+Recommended table:
+
+| Region/estimand | 1-year CI | 3-year CI | 5-year CI | Direction stable? |
+|---|---|---|---|---|
+
+The central conclusion should depend on direction and interval behaviour being reasonably stable, not on one preferred block length producing a convenient result.
+
+# Effective information loss
+
+Document the conceptual distinction between:
+
+```text
+84,351 station-event observations nationally
+```
+
+and the much smaller number of effectively independent weather/time clusters.
+
+The block bootstrap does not estimate an exact effective sample size, but widening of bootstrap intervals relative to pooled likelihood intervals provides an empirical measure of dependence-related information loss.
+
+# Interpretation framework
+
+Use the following hierarchy.
+
+## Outcome A: NSW and VIC remain clearly resolved
+
+If:
+
+```text
+NSW bootstrap CI entirely below zero
+VIC bootstrap CI entirely above zero
+```
+
+then conclude that the opposing regional trends are robust to short-range temporal and spatial event dependence represented by the block bootstrap.
+
+## Outcome B: intervals widen but directions remain dominant
+
+If intervals touch or modestly cross zero while most bootstrap mass retains the same sign, describe the findings as directionally robust but with weaker inferential certainty after dependence adjustment.
+
+Report:
+
+```text
+Pr(beta < 0) for NSW
+Pr(beta > 0) for VIC
+```
+
+as bootstrap sign proportions, not Bayesian probabilities.
+
+## Outcome C: signs become unstable
+
+If the bootstrap distributions become broad and sign proportions approach 0.5, downgrade the regional trend evidence and avoid strong inferential claims.
+
+# Limitations of the bootstrap approach
+
+## Temporal blocks are an approximation to weather events
+
+Three-year blocks preserve temporal clustering and all same-year spatial concurrence, but they do not explicitly identify synoptic systems.
+
+## Cross-year events
+
+Events crossing 31 December require explicit treatment. Assign each declustered event to its peak year consistently. The resampling unit is the peak year/block, not individual event-day fragments.
+
+## Climate modes
+
+ENSO, IOD and SAM can generate dependence beyond a short fixed block. The 5-year sensitivity helps assess this but does not constitute a climate-mode model.
+
+## Threshold estimation
+
+Threshold-estimation uncertainty remains outside the bootstrap unless thresholds are recalculated inside each replicate. Do **not** recalculate thresholds in the first bootstrap because that would greatly increase computation and change the estimand.
+
+## Event frequency
+
+This sensitivity analysis concerns GPD magnitude parameters. It does not replace the separately fitted frequency models.
+
+# Decision criteria for further spatial EVT modelling
+
+A large spatial EVT model is justified only if the bootstrap reveals information that materially changes interpretation.
+
+## Spatial EVT probably unnecessary for the main paper if
+
+- NSW remains clearly negative;
+- Victoria remains clearly positive;
+- Queensland remains non-monotonic;
+- interval inflation is moderate;
+- block-length sensitivity is limited.
+
+In that case, pooled regional effects plus dependence-aware bootstrap intervals provide a transparent and computationally efficient analysis.
+
+## More explicit spatial modelling is worth considering if
+
+- regional conclusions collapse under dependence adjustment;
+- block-length results differ materially;
+- within-state heterogeneity is central to the research question;
+- spatial return-level maps with inferential uncertainty are a required deliverable.
+
+# Outputs for the final research overview
+
+Generate compact CSV products:
+
+```text
+tables/rainfall_gpd_dependence/
+  dependence_key_m1_results.csv
+  dependence_key_m2_results.csv
+  dependence_variance_inflation.csv
+  dependence_block_sensitivity.csv
+```
+
+and publication-ready figures:
+
+```text
+figures/rainfall_gpd_dependence/
+  bootstrap_m1_regional_trends.png
+  bootstrap_m2_period_contrasts.png
+  pooled_vs_bootstrap_intervals.png
+  block_length_sensitivity.png
+```
+
+# Next implementation step
+
+The computational work should be separated from this report. Create:
+
+```text
+R/models/bootstrap_regional_gpd_dependence.R
+```
+
+The script should:
+
+1. load P97.5/run-3 primary events;
+2. source `R/models/gpd_helpers.R`;
+3. construct region-year event clusters;
+4. perform a 50-replicate pilot for NSW, QLD and VIC;
+5. fit M1 using full-series moving 3-year blocks;
+6. fit M2 using period-stratified 3-year blocks;
+7. save every replicate estimate and diagnostic;
+8. summarize failures and runtime;
+9. only then scale to 200 replicates.
+
+The Quarto report should remain fast and deterministic by reading those saved outputs rather than executing the bootstrap itself.

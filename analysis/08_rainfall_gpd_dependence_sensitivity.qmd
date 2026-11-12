@@ -1,0 +1,697 @@
+---
+title: "Extreme rainfall dependence sensitivity"
+subtitle: "Three-year block-bootstrap uncertainty for regional GPD temporal signals"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Purpose and scope
+
+The pooled regional Generalized Pareto Distribution (GPD) analyses identified a strong decline in conditional extreme-rainfall magnitude in New South Wales, a positive tendency in Victoria, and multi-decadal rather than monotonic behaviour in Queensland. Those pooled likelihood models treat station-event magnitudes as conditionally independent, although widespread weather systems can produce extremes at many stations at the same time.
+
+This report therefore evaluates regional uncertainty using a dependence-aware temporal block bootstrap. Whole region-year event clusters are resampled together, preserving same-year cross-station concurrence and short multi-year persistence. The purpose is uncertainty calibration, not replacement of the previously selected P97.5 / three-day event definition.
+
+The primary analysis uses 200 bootstrap replicates with three-year moving blocks for NSW, Queensland and Victoria. No bootstrap fitting is performed during report rendering.
+
+# Questions
+
+1. Does the NSW negative GPD-scale trend remain clearly negative after dependence adjustment?
+2. Does the Victorian positive trend remain clearly positive at the 95% level?
+3. Does Queensland remain consistent with no monotonic trend?
+4. Which three-period contrasts remain resolved after dependence adjustment?
+5. How much wider is dependence-aware uncertainty than pooled-likelihood uncertainty?
+
+# Analysis definition
+
+The dependence sensitivity uses the frozen primary EVT specification:
+
+- station-specific wet-day P97.5 threshold;
+- 1961–1990 threshold reference period;
+- three-day runs declustering;
+- `PRCP_QUAL` 0–4;
+- 1950–2025;
+- regions: NSW, QLD and VIC;
+- 200 bootstrap replicates;
+- three-year temporal blocks.
+
+For M1, contiguous source-year blocks are resampled with all regional station events from each sampled year retained together. For M2, blocks are sampled separately within 1950–1975, 1976–2000 and 2001–2025 so the fixed historical-period estimand is preserved.
+
+# Setup and saved bootstrap outputs
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(ggplot2)
+library(scales)
+
+project_root <- if (file.exists("_targets.R")) {
+  "."
+} else if (file.exists("../_targets.R")) {
+  ".."
+} else if (file.exists("renv.lock")) {
+  "."
+} else if (file.exists("../renv.lock")) {
+  ".."
+} else {
+  stop("Could not locate project root.", call. = FALSE)
+}
+
+model_table_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_models",
+  "gpd"
+)
+
+output_table_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_gpd_dependence"
+)
+
+output_figure_dir <- file.path(
+  project_root,
+  "figures",
+  "rainfall_gpd_dependence"
+)
+
+dir.create(output_table_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(output_figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+prefix <- "regional_gpd_dependence_bootstrap_b3_n200"
+
+read_required <- function(suffix) {
+  path <- file.path(
+    model_table_dir,
+    paste0(prefix, suffix)
+  )
+
+  if (!file.exists(path)) {
+    stop("Missing required bootstrap output: ", path, call. = FALSE)
+  }
+
+  fread(path)
+}
+
+pooled_reference <- read_required("_pooled_reference.csv")
+m1_replicates <- read_required("_m1_replicates.csv")
+m2_replicates <- read_required("_m2_replicates.csv")
+m1_summary <- read_required("_m1_summary.csv")
+m2_summary <- read_required("_m2_summary.csv")
+m2_success <- read_required("_m2_success.csv")
+run_summary <- read_required("_run_summary.csv")
+
+region_levels <- c("NSW", "QLD", "VIC")
+
+for (x in c("pooled_reference", "m1_replicates", "m2_replicates", "m1_summary", "m2_summary")) {
+  set(
+    get(x),
+    j = "region",
+    value = factor(get(x)$region, levels = region_levels)
+  )
+}
+
+theme_set(theme_minimal(base_size = 11))
+```
+
+# Bootstrap execution and diagnostics
+
+## Run summary
+
+```{r}
+#| label: run-summary
+
+run_summary
+```
+
+The primary dependence run completed 200 replicates for each of three regions. With M1 and M2 fitted separately, this represents 1,200 bootstrap model fits. The complete run took approximately 209 minutes.
+
+## Fit success
+
+```{r}
+#| label: success-summary
+
+m1_success <- m1_replicates[, .(
+  model = "M1 linear trend",
+  requested = .N,
+  successful = sum(success),
+  failed = sum(!success),
+  success_fraction = mean(success)
+), by = region]
+
+m2_success_clean <- m2_success[, .(
+  region,
+  model = "M2 three-period",
+  requested = requested_replicates,
+  successful = successful_replicates,
+  failed = failed_replicates,
+  success_fraction
+)]
+
+fit_success <- rbindlist(
+  list(m1_success, m2_success_clean),
+  use.names = TRUE,
+  fill = TRUE
+)
+
+fit_success
+```
+
+All requested bootstrap fits were successful. Consequently, the percentile intervals below are not affected by selective omission of failed replicates.
+
+# Dependence-aware M1 trends
+
+## Pooled versus bootstrap estimates
+
+```{r}
+#| label: m1-summary-table
+
+m1_report <- m1_summary[, .(
+  region,
+  pooled_change_pct,
+  pooled_ci_low_pct,
+  pooled_ci_high_pct,
+  bootstrap_median_pct,
+  bootstrap_ci_low_pct,
+  bootstrap_ci_high_pct,
+  proportion_negative,
+  proportion_positive,
+  variance_inflation_ratio,
+  sign_stable_95
+)]
+
+m1_report
+```
+
+```{r}
+#| label: fig-m1-bootstrap-distributions
+#| fig-width: 10
+#| fig-height: 5.5
+
+p_m1_distribution <- ggplot(
+  m1_replicates[success == TRUE],
+  aes(x = percent_scale_change_decade)
+) +
+  geom_histogram(
+    bins = 28,
+    fill = "grey75",
+    colour = "white"
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2,
+    colour = "grey35"
+  ) +
+  geom_vline(
+    data = pooled_reference,
+    aes(xintercept = pooled_m1_change_pct),
+    linewidth = 0.8
+  ) +
+  facet_wrap(~ region, scales = "free_y", nrow = 1) +
+  labs(
+    title = "Dependence-aware bootstrap distributions of regional GPD scale trends",
+    subtitle = "Vertical solid line is the original pooled estimate; dashed line is zero",
+    x = "GPD scale change per decade (%)",
+    y = "Bootstrap replicates"
+  )
+
+p_m1_distribution
+
+ggsave(
+  file.path(output_figure_dir, "bootstrap_m1_regional_trends.png"),
+  p_m1_distribution,
+  width = 10,
+  height = 5.5,
+  dpi = 200
+)
+```
+
+## Interval comparison
+
+```{r}
+#| label: fig-pooled-vs-bootstrap
+#| fig-width: 9
+#| fig-height: 5.5
+
+interval_long <- rbindlist(
+  list(
+    m1_summary[, .(
+      region,
+      method = "Pooled likelihood",
+      estimate = pooled_change_pct,
+      lower = pooled_ci_low_pct,
+      upper = pooled_ci_high_pct
+    )],
+    m1_summary[, .(
+      region,
+      method = "3-year block bootstrap",
+      estimate = bootstrap_median_pct,
+      lower = bootstrap_ci_low_pct,
+      upper = bootstrap_ci_high_pct
+    )]
+  )
+)
+
+interval_long[, method := factor(
+  method,
+  levels = c("Pooled likelihood", "3-year block bootstrap")
+)]
+
+p_interval_comparison <- ggplot(
+  interval_long,
+  aes(
+    y = region,
+    x = estimate,
+    xmin = lower,
+    xmax = upper,
+    colour = method
+  )
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2,
+    colour = "grey45"
+  ) +
+  geom_errorbarh(
+    height = 0.18,
+    position = position_dodge(width = 0.45)
+  ) +
+  geom_point(
+    size = 2.6,
+    position = position_dodge(width = 0.45)
+  ) +
+  labs(
+    title = "Dependence adjustment substantially widens regional trend uncertainty",
+    x = "GPD scale change per decade (%)",
+    y = NULL,
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom")
+
+p_interval_comparison
+
+ggsave(
+  file.path(output_figure_dir, "pooled_vs_bootstrap_intervals.png"),
+  p_interval_comparison,
+  width = 9,
+  height = 5.5,
+  dpi = 200
+)
+```
+
+## NSW
+
+The pooled NSW estimate is approximately **−2.83% per decade**. Dependence-aware resampling gives a bootstrap median of approximately **−3.01% per decade**, with a 95% percentile interval of approximately **−4.62% to −1.41%**. All 200 bootstrap estimates are negative.
+
+The NSW conclusion therefore remains clearly resolved after dependence adjustment:
+
+> Conditional extreme-rainfall magnitude declined in NSW over 1950–2025, and the negative direction is robust to common three-year block resampling of regional station events.
+
+## Queensland
+
+Queensland has a bootstrap median of approximately **+0.40% per decade**, with a 95% interval of approximately **−1.67% to +2.52%**. Approximately 65% of bootstrap estimates are positive.
+
+The dependence-aware result therefore remains consistent with **no resolved monotonic Queensland trend**.
+
+## Victoria
+
+Victoria retains a predominantly positive distribution. The bootstrap median is approximately **+1.56% per decade**, and 90% of bootstrap estimates are positive. However, the 95% interval spans approximately **−0.81% to +4.66%**.
+
+The pooled likelihood interval was therefore too narrow. The dependence-aware interpretation is:
+
+> Victoria shows a strong directional tendency toward increasing conditional extreme-rainfall magnitude, but the positive trend is not fully separated from zero at the 95% level under the three-year block bootstrap.
+
+# Dependence-related uncertainty inflation
+
+```{r}
+#| label: variance-inflation-table
+
+variance_inflation <- m1_summary[, .(
+  region,
+  pooled_se_log_beta,
+  bootstrap_sd_log_beta,
+  variance_inflation_ratio
+)]
+
+variance_inflation
+```
+
+```{r}
+#| label: fig-variance-inflation
+#| fig-width: 7.5
+#| fig-height: 4.5
+
+p_variance_inflation <- ggplot(
+  variance_inflation,
+  aes(
+    x = region,
+    y = variance_inflation_ratio
+  )
+) +
+  geom_hline(
+    yintercept = 1,
+    linetype = 2,
+    colour = "grey50"
+  ) +
+  geom_col() +
+  labs(
+    title = "Dependence-aware uncertainty is roughly three times larger",
+    subtitle = "Bootstrap SD divided by pooled model SE for the M1 log-scale trend",
+    x = NULL,
+    y = "Uncertainty inflation ratio"
+  )
+
+p_variance_inflation
+
+ggsave(
+  file.path(output_figure_dir, "dependence_variance_inflation.png"),
+  p_variance_inflation,
+  width = 7.5,
+  height = 4.5,
+  dpi = 200
+)
+```
+
+Bootstrap variability is approximately **2.7–3.5 times** the pooled likelihood standard error across the three regions. This is strong evidence that the nominal number of station-event observations substantially overstates the effectively independent information available for regional temporal inference.
+
+This result changes the evidential hierarchy: effect direction, cross-threshold consistency and dependence-aware intervals are more informative than extremely small pooled-likelihood p-values.
+
+# Dependence-aware M2 period contrasts
+
+## Bootstrap summaries
+
+```{r}
+#| label: m2-summary-table
+
+m2_report <- copy(m2_summary)
+
+m2_report[
+  order(region, comparison)
+]
+```
+
+```{r}
+#| label: fig-m2-bootstrap
+#| fig-width: 10
+#| fig-height: 7
+
+m2_long <- rbindlist(
+  list(
+    m2_replicates[success == TRUE, .(
+      region,
+      replicate,
+      comparison = "1976–2000 vs 1950–1975",
+      estimate_pct = middle_vs_early_pct
+    )],
+    m2_replicates[success == TRUE, .(
+      region,
+      replicate,
+      comparison = "2001–2025 vs 1950–1975",
+      estimate_pct = recent_vs_early_pct
+    )]
+  )
+)
+
+p_m2_distribution <- ggplot(
+  m2_long,
+  aes(
+    x = estimate_pct,
+    fill = comparison
+  )
+) +
+  geom_histogram(
+    bins = 28,
+    alpha = 0.55,
+    position = "identity",
+    colour = "white"
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2,
+    colour = "grey30"
+  ) +
+  facet_wrap(~ region, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Dependence-aware three-period scale contrasts",
+    x = "Scale difference from 1950–1975 (%)",
+    y = "Bootstrap replicates",
+    fill = NULL
+  ) +
+  theme(legend.position = "bottom")
+
+p_m2_distribution
+
+ggsave(
+  file.path(output_figure_dir, "bootstrap_m2_period_contrasts.png"),
+  p_m2_distribution,
+  width = 10,
+  height = 7,
+  dpi = 200
+)
+```
+
+## NSW period contrasts
+
+For 1976–2000 versus 1950–1975, the bootstrap median is approximately **−8.9%**, but the 95% interval spans roughly **−18.6% to +6.5%**. About 90.5% of estimates are negative.
+
+For 2001–2025 versus 1950–1975, the bootstrap median is approximately **−12.3%**, with a 95% interval of approximately **−19.7% to −4.2%**. All 200 estimates are negative.
+
+The recent NSW deficit is therefore the strongest period contrast in the dependence-aware analysis.
+
+## Queensland period contrasts
+
+The 1976–2000 contrast has a median of approximately **−7.4%** and a 95% interval of approximately **−15.2% to +1.7%**. About 92.5% of estimates are negative.
+
+The recent-period contrast has a median of approximately **+1.2%**, with a broad interval spanning approximately **−7.3% to +15.7%**.
+
+Queensland therefore retains a strongly directional middle-period reduction followed by recovery, but neither contrast is fully resolved at the 95% bootstrap level.
+
+## Victoria period contrasts
+
+For 1976–2000 versus the early period, approximately 84.5% of bootstrap estimates are negative, with a median near **−4.9%**.
+
+For 2001–2025 versus the early period, approximately 92.5% of estimates are positive, with a median near **+9.7%**, but the 95% interval spans approximately **−1.5% to +23.2%**.
+
+Thus Victoria retains a strong directional pattern of recent tail-scale increase, but the dependence-aware 95% interval narrowly includes zero.
+
+# Pooled versus dependence-aware interpretation
+
+```{r}
+#| label: evidence-table
+
+key_evidence <- data.table(
+  finding = c(
+    "NSW linear trend",
+    "NSW recent vs early",
+    "QLD linear trend",
+    "QLD middle vs early",
+    "VIC linear trend",
+    "VIC recent vs early"
+  ),
+  dependence_aware_result = c(
+    "Clearly negative",
+    "Clearly negative",
+    "Unresolved; interval spans zero",
+    "Directionally negative; interval spans zero",
+    "Predominantly positive; interval spans zero",
+    "Directionally positive; interval narrowly spans zero"
+  )
+)
+
+key_evidence
+```
+
+The dependence adjustment materially changes how several regional findings should be communicated.
+
+## Clearly supported after dependence adjustment
+
+1. **NSW has a declining GPD scale trend.**
+2. **NSW's 2001–2025 tail scale is lower than during 1950–1975.**
+3. **Queensland has no resolved monotonic linear trend.**
+4. **Pooled regional likelihood uncertainty is substantially too narrow for temporal inference.**
+
+## Directionally strong but not resolved at the 95% bootstrap level
+
+1. Victoria's positive linear trend.
+2. Victoria's recent-period increase relative to 1950–1975.
+3. Queensland's 1976–2000 reduction.
+4. NSW's 1976–2000 reduction.
+
+This distinction should replace interpretations based solely on pooled model p-values.
+
+# Bootstrap sign proportions
+
+Percentile intervals are the primary uncertainty summary, but sign proportions provide a useful descriptive measure of directional stability.
+
+```{r}
+#| label: sign-proportions
+
+m1_sign <- m1_summary[, .(
+  region,
+  estimand = "M1 scale trend",
+  negative_fraction = proportion_negative,
+  positive_fraction = proportion_positive
+)]
+
+m2_sign <- m2_summary[, .(
+  region,
+  estimand = comparison,
+  negative_fraction = proportion_negative,
+  positive_fraction = proportion_positive
+)]
+
+sign_summary <- rbindlist(
+  list(m1_sign, m2_sign),
+  use.names = TRUE,
+  fill = TRUE
+)
+
+sign_summary
+```
+
+These proportions describe the fraction of bootstrap replications retaining each direction. They are **not Bayesian posterior probabilities** and should not be reported as such.
+
+# Block-length sensitivity
+
+The current report uses the preselected three-year block as the primary dependence adjustment. One- and five-year block sensitivities have not yet been run.
+
+Given that the 200-replicate primary run required approximately 3.5 hours, additional block-length analyses should be targeted rather than automatic. They are most useful for the conclusions whose uncertainty remains borderline:
+
+- Victoria M1 trend;
+- Victoria recent versus early contrast;
+- Queensland middle versus early contrast.
+
+The NSW linear trend and recent-period deficit are already clearly separated from zero under the three-year primary block bootstrap.
+
+# Methodological implications
+
+## Effective information is much smaller than the station-event count
+
+The pooled regional datasets contain thousands to tens of thousands of station-event observations, but many observations are generated by common regional weather systems. The approximately threefold increase in trend uncertainty under block resampling demonstrates that nominal event count is not equivalent to independent information.
+
+## Pooled estimates remain useful for effect magnitude
+
+The bootstrap medians remain close to the original pooled point estimates:
+
+- NSW pooled −2.83%/decade versus bootstrap median −3.01%;
+- QLD pooled +0.42%/decade versus bootstrap median +0.40%;
+- VIC pooled +1.67%/decade versus bootstrap median +1.56%.
+
+The principal correction is therefore to **uncertainty**, not to the estimated effect direction or magnitude.
+
+# Limitations
+
+## Three-year blocks are a dependence approximation
+
+The bootstrap retains all regional station events within sampled years and preserves short multi-year persistence. It does not explicitly identify individual meteorological systems or estimate spatial tail dependence.
+
+## Block length
+
+Three years was selected as a pragmatic primary block length. Dependence associated with slower climate modes may extend beyond this period. Targeted one- and five-year sensitivity runs can assess this if needed.
+
+## Climate-period contrasts
+
+M2 uses period-stratified resampling to preserve the fixed historical periods. These bootstrap intervals therefore quantify sampling uncertainty conditional on the chosen period boundaries rather than uncertainty in the boundaries themselves.
+
+## Threshold estimation
+
+The station thresholds remain fixed. Threshold-estimation uncertainty is not propagated through the bootstrap.
+
+## Frequency is outside this bootstrap
+
+This report addresses dependence in GPD magnitude inference. It does not replace the separately fitted rainfall-event frequency models.
+
+# Dependence-aware EVT conclusions
+
+The principal EVT conclusions after dependence adjustment are:
+
+1. **NSW's decline is robust.** The three-year block-bootstrap median is approximately −3.0% per decade, the 95% interval remains below zero, and every replicate is negative.
+
+2. **NSW's recent-period deficit is also robust.** The 2001–2025 scale remains clearly lower than the 1950–1975 scale under dependence-aware resampling.
+
+3. **Queensland remains inconsistent with a monotonic trend.** The middle-period reduction is directionally strong, but dependence-aware intervals indicate substantial uncertainty.
+
+4. **Victoria remains predominantly positive, but the evidence is weaker than the pooled likelihood implied.** Ninety percent of M1 replicates are positive, yet the 95% interval includes zero. The recent-period contrast behaves similarly.
+
+5. **Dependence materially inflates uncertainty.** Bootstrap variability is approximately 2.7–3.5 times the pooled model standard errors.
+
+6. **The pooled GPD effect sizes remain useful, but pooled likelihood p-values should not be the primary basis for regional inference.** Cross-threshold consistency and dependence-aware uncertainty provide the more defensible evidence.
+
+# Outputs for the final research overview
+
+```{r}
+#| label: final-outputs
+
+key_m1_results <- m1_summary[, .(
+  region,
+  pooled_change_pct,
+  pooled_ci_low_pct,
+  pooled_ci_high_pct,
+  bootstrap_median_pct,
+  bootstrap_ci_low_pct,
+  bootstrap_ci_high_pct,
+  proportion_negative,
+  proportion_positive,
+  variance_inflation_ratio
+)]
+
+key_m2_results <- m2_summary[, .(
+  region,
+  comparison,
+  bootstrap_median_pct,
+  bootstrap_ci_low_pct,
+  bootstrap_ci_high_pct,
+  proportion_negative,
+  proportion_positive
+)]
+
+variance_inflation_output <- variance_inflation
+
+fwrite(
+  key_m1_results,
+  file.path(output_table_dir, "dependence_key_m1_results.csv")
+)
+
+fwrite(
+  key_m2_results,
+  file.path(output_table_dir, "dependence_key_m2_results.csv")
+)
+
+fwrite(
+  variance_inflation_output,
+  file.path(output_table_dir, "dependence_variance_inflation.csv")
+)
+
+fwrite(
+  fit_success,
+  file.path(output_table_dir, "dependence_bootstrap_fit_success.csv")
+)
+
+fwrite(
+  key_evidence,
+  file.path(output_table_dir, "dependence_evidence_summary.csv")
+)
+
+key_m1_results
+key_m2_results
+```
+
+# Decision point
+
+The three-year 200-replicate bootstrap already changes inference materially and resolves the most important issue raised by the pooled regional analysis. On the current evidence, an expensive national spatial EVT model is not automatically required to establish the main directional findings.
+
+Further dependence work should be targeted to whether it can change interpretation. The highest-value optional sensitivity is block length for the borderline Victorian and Queensland results, rather than a wholesale expansion of model complexity.

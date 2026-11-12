@@ -1,0 +1,4 @@
+region,requested_replicates,successful_replicates,failed_replicates,success_fraction,median_fit_seconds
+NSW,50,50,0,1,2.7899999999936
+QLD,50,50,0,1,2.83999999999651
+VIC,50,50,0,1,1.94499999999971

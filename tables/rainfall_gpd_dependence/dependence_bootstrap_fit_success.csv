@@ -1,0 +1,7 @@
+region,model,requested,successful,failed,success_fraction
+NSW,M1 linear trend,200,200,0,1
+QLD,M1 linear trend,200,200,0,1
+VIC,M1 linear trend,200,200,0,1
+NSW,M2 three-period,200,200,0,1
+QLD,M2 three-period,200,200,0,1
+VIC,M2 three-period,200,200,0,1
