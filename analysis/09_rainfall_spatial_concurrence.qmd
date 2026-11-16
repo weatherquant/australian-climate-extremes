@@ -609,11 +609,13 @@ extent_model_comparison[
 
 The stationary duration model is strongly disfavoured, while the linear and three-period models have nearly equivalent support.
 
-## Overdispersion caveat
+## Quasi-Poisson robustness
 
-The Poisson duration model has Pearson dispersion of approximately **1.51**, indicating moderate overdispersion. The direction and size of the temporal effect are highly stable in the 1950–2023 sensitivity, but the nominal Poisson interval should be interpreted cautiously until robust or quasi-Poisson uncertainty is evaluated.
+The Poisson duration model has Pearson dispersion of approximately **1.51**, indicating moderate overdispersion. A quasi-Poisson sensitivity analysis increases the trend standard error by approximately **23%**, but the persistence result remains clearly resolved. Additional episode duration decreases by approximately **4.8% per decade** over 1950–2022, with a quasi-Poisson 95% interval of approximately **−7.7% to −1.8% per decade**. The 1950–2023 sensitivity gives a nearly identical decline of approximately **5.0% per decade**.
 
-The episode-duration distribution also contains a large point mass at one day: most episodes have no additional days. The present Poisson model is therefore a parsimonious trend benchmark rather than a final mechanistic persistence model.
+Period contrasts are also robust to overdispersion. Relative to 1950–1975, additional duration is approximately **19% lower during 1976-2000** and **21% lower during 2001–2022**, with both quasi-Poisson intervals remaining below zero.
+
+Moderate overdispersion therefore increases uncertainty but does **not** alter the conclusion that coherent extreme-rainfall episodes have become less persistent.
 
 # 1950–2023 sensitivity
 
@@ -674,9 +676,8 @@ Thus national extreme-rainfall change cannot be represented adequately by a sing
 The following analyses are optional rather than prerequisites for the main spatial conclusions:
 
 1. 100-km and 300-km connectivity sensitivity for the principal episode metrics;
-2. robust/quasi-Poisson uncertainty for duration to account for moderate overdispersion;
-3. a hurdle formulation separating one-day versus multi-day occurrence from duration conditional on extending beyond one day;
-4. regional connected-event analyses if spatial footprint trends by state or climate region become a primary research question.
+2. a hurdle formulation separating one-day versus multi-day occurrence from duration conditional on extending beyond one day;
+3. regional connected-event analyses if spatial footprint trends by state or climate region become a primary research question.
 
 Given the stability of the main spatial-size results and the clear coverage limitations after 2022, these extensions should be pursued only where they can materially change interpretation.
 

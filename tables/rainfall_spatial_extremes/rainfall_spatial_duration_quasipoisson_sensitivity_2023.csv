@@ -1,0 +1,2 @@
+model,analysis_period,log_rate_change_per_decade,standard_error,rate_ratio_per_decade,percent_change_per_decade,conf_low_percent,conf_high_percent,p_value,dispersion
+quasi_poisson_linear,1950-2023_sensitivity,-0.0508220516108949,0.0156238605425614,0.950447786137527,-4.95522138624724,-7.82159072529428,-1.99971975198621,0.00114923135258373,1.51097992125052

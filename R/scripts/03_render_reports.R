@@ -47,3 +47,16 @@ quarto::quarto_render(
 quarto::quarto_render(
   "analysis/09_rainfall_spatial_concurrence.qmd"
 )
+
+# High-level story
+# The evidence does not support one simplistic national narrative.
+# Instead:
+# - rainfall extremes exhibit strong regional heterogeneity;
+# - conditional extreme magnitude has no robust monotonic national increase;
+# - NSW shows a robust decline in conditional tail magnitude;
+# - Victoria has a positive directional magnitude signal, but dependence-aware uncertainty weakens the inference;
+# - Queensland shows more multi-decadal than monotonic behaviour;
+# - coherent spatial episodes are not detectably increasing in footprint;
+# - episode frequency is approximately stationary to modestly declining;
+# - the clearest spatial-event change is shorter persistence;
+# - dependence and network exposure materially affect uncertainty and therefore need explicit treatment.
