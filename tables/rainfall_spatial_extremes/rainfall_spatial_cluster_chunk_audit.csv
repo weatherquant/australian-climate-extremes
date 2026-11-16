@@ -1,0 +1,17 @@
+file,exceeding_station_days,extreme_dates,clusters,connected_clusters,coherent_clusters,isolated_clusters
+adam_prcp_days_1950_1954_spatial_extremes.parquet,7034,998,2060,874,562,1186
+adam_prcp_days_1955_1959_spatial_extremes.parquet,7300,997,2072,876,571,1196
+adam_prcp_days_1960_1964_spatial_extremes.parquet,6137,931,1886,799,525,1087
+adam_prcp_days_1965_1969_spatial_extremes.parquet,5177,858,1586,644,421,942
+adam_prcp_days_1970_1974_spatial_extremes.parquet,7902,964,2028,849,556,1179
+adam_prcp_days_1975_1979_spatial_extremes.parquet,6030,944,1817,744,485,1073
+adam_prcp_days_1980_1984_spatial_extremes.parquet,5661,852,1668,689,460,979
+adam_prcp_days_1985_1989_spatial_extremes.parquet,5680,886,1628,678,448,950
+adam_prcp_days_1990_1994_spatial_extremes.parquet,6022,827,1605,668,444,937
+adam_prcp_days_1995_1999_spatial_extremes.parquet,6319,881,1715,765,514,950
+adam_prcp_days_2000_2004_spatial_extremes.parquet,4905,806,1457,656,439,801
+adam_prcp_days_2005_2009_spatial_extremes.parquet,4592,807,1409,609,376,800
+adam_prcp_days_2010_2014_spatial_extremes.parquet,6871,870,1649,779,508,870
+adam_prcp_days_2015_2019_spatial_extremes.parquet,4563,736,1279,569,386,710
+adam_prcp_days_2020_2024_spatial_extremes.parquet,6055,891,1795,756,498,1039
+adam_prcp_days_2025_2027_spatial_extremes.parquet,911,185,358,154,89,204

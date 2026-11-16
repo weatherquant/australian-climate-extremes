@@ -1,0 +1,4 @@
+threshold_id,threshold_probability,days,days_with_exceedance,median_exceeding_stations_on_event_days,p90_exceeding_stations_on_event_days,p99_exceeding_stations_on_event_days,median_area_fraction_on_event_days,p90_area_fraction_on_event_days,p99_area_fraction_on_event_days,correlation_station_area_fraction
+p95,0.95,26036,16877,4,25,76,0.00283022570346206,0.0280786469951993,0.0701534303586868,0.567293885907103
+p975,0.975,26036,12510,3,17,53,0.00181485090168168,0.0184579927569779,0.0556925292362318,0.5334593015233
+p99,0.99,26036,7560,2,11,35,0.00117387852447496,0.0114163533059833,0.0394577939235765,0.484492277742475

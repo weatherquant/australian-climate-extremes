@@ -33,3 +33,10 @@ quarto::quarto_render(
 quarto::quarto_render(
   "analysis/07_rainfall_gpd_results.qmd"
 )
+
+# ------------------------------------------------------------
+# Rainfall GDP dependence sensitivity
+# ------------------------------------------------------------
+quarto::quarto_render(
+  "analysis/08_rainfall_gpd_dependence_sensitivity.qmd"
+)

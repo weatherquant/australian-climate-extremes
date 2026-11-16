@@ -1,0 +1,2 @@
+stations,crs_epsg,domain_area_km2,voronoi_total_area_km2,area_difference_km2,area_relative_difference,weight_sum,minimum_cell_area_km2,median_cell_area_km2,maximum_cell_area_km2,minimum_neighbours,median_neighbours,maximum_neighbours
+742,3577,7687839.21559113,7687839.21559097,-1.61118805408478e-07,-2.09576190253465e-14,1,25.4327261074876,2610.41087774972,480582.130144276,0,6,11
