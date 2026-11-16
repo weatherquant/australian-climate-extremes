@@ -1,0 +1,4 @@
+spatial_climate_period,episodes,median_maximum_simultaneous_stations,q10_maximum_simultaneous_stations,q90_maximum_simultaneous_stations,median_unique_stations_affected,q10_unique_stations_affected,q90_unique_stations_affected,median_duration_days,q90_duration_days,median_maximum_cluster_area_km2,q90_maximum_cluster_area_km2
+1950-1975,2136,6,3,20.5,6,3,25,1,2,17864.749098207,79678.3770746216
+1976-2000,1912,5,3,23,6,3,26,1,2,17895.7544571901,78921.8510720281
+2001-2022,1582,5,3,20,6,3,21,1,2,17986.9750910993,71406.2381509593

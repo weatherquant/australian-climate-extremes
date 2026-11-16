@@ -1,0 +1,2 @@
+episodes,primary_coverage_episodes,strict_coverage_episodes,single_day_episodes,multi_day_episodes,median_duration_days,p90_duration_days,p99_duration_days,median_unique_stations,p90_unique_stations,p99_unique_stations,median_maximum_simultaneous_stations,p90_maximum_simultaneous_stations,p99_maximum_simultaneous_stations
+5835,5742,5385,4811,1024,1,2,4,6,24,77,5,21,61.6599999999999

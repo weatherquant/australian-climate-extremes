@@ -1,0 +1,717 @@
+---
+title: "Spatial concurrence and persistence of Australian extreme rainfall"
+subtitle: "Daily concurrence, connected clusters and multi-day P97.5 episodes, 1950–2025"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Purpose
+
+This report evaluates whether Australian extreme rainfall has changed in spatial concurrence, connected footprint and multi-day persistence. It complements the preceding POT/GPD analyses, which address conditional extreme-event magnitude, by asking whether locally extreme rainfall occurs simultaneously across larger connected parts of the observing network or persists for longer periods.
+
+The primary spatial definition uses station-specific P97.5 wet-day thresholds, 200-km station connectivity and coherent daily clusters containing at least three connected stations.
+
+Primary temporal inference is restricted to **1950–2022** because the daily coverage analysis shows complete primary 80/80 exposure throughout this interval. The year 2023 is retained as a sensitivity extension. The years 2024–2025 are descriptive only because missingness becomes substantial and demonstrably non-random with respect to rainfall-extreme occurrence.
+
+# Setup
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(arrow)
+library(ggplot2)
+library(scales)
+
+project_root <- if (file.exists("_targets.R")) {
+  "."
+} else if (file.exists("../_targets.R")) {
+  ".."
+} else if (file.exists("renv.lock")) {
+  "."
+} else if (file.exists("../renv.lock")) {
+  ".."
+} else {
+  stop("Could not locate project root.", call. = FALSE)
+}
+
+spatial_dir <- file.path(
+  project_root,
+  "data-derived",
+  "rainfall",
+  "spatial_extremes"
+)
+
+table_dir <- file.path(
+  project_root,
+  "tables",
+  "rainfall_spatial_extremes"
+)
+
+figure_dir <- file.path(
+  project_root,
+  "figures",
+  "rainfall_spatial_extremes"
+)
+
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+read_parquet_required <- function(name) {
+  path <- file.path(spatial_dir, name)
+  if (!file.exists(path)) stop("Missing required file: ", path, call. = FALSE)
+  as.data.table(arrow::read_parquet(path))
+}
+
+read_csv_required <- function(name) {
+  path <- file.path(table_dir, name)
+  if (!file.exists(path)) stop("Missing required file: ", path, call. = FALSE)
+  fread(path)
+}
+
+daily_spatial <- read_parquet_required(
+  "rainfall_spatial_extreme_days_1950_2025.parquet"
+)
+
+clusters <- read_parquet_required(
+  "rainfall_spatial_extreme_clusters_p975_200km_1950_2025.parquet"
+)
+
+daily_clusters <- read_parquet_required(
+  "rainfall_spatial_extreme_cluster_days_p975_200km_1950_2025.parquet"
+)
+
+episodes <- read_parquet_required(
+  "rainfall_spatial_extreme_episodes_p975_200km_1950_2025.parquet"
+)
+
+annual_analysis <- read_parquet_required(
+  "rainfall_spatial_episode_annual_analysis_1950_2025.parquet"
+)
+
+linear_frequency <- read_csv_required(
+  "rainfall_spatial_episode_linear_effect.csv"
+)
+
+period_frequency <- read_csv_required(
+  "rainfall_spatial_episode_period_effects.csv"
+)
+
+frequency_model_comparison <- read_csv_required(
+  "rainfall_spatial_episode_model_comparison.csv"
+)
+
+extent_linear <- read_csv_required(
+  "rainfall_spatial_extent_linear_effects.csv"
+)
+
+extent_period <- read_csv_required(
+  "rainfall_spatial_extent_period_effects.csv"
+)
+
+extent_model_comparison <- read_csv_required(
+  "rainfall_spatial_extent_model_comparison.csv"
+)
+
+extent_sensitivity <- read_csv_required(
+  "rainfall_spatial_extent_linear_sensitivity_2023.csv"
+)
+
+period_descriptives <- read_csv_required(
+  "rainfall_spatial_extent_period_descriptives.csv"
+)
+
+cluster_size_summary <- read_csv_required(
+  "rainfall_spatial_cluster_size_summary.csv"
+)
+
+episode_summary <- read_csv_required(
+  "rainfall_spatial_episode_summary.csv"
+)
+
+annual_exposure <- read_parquet_required(
+  "rainfall_spatial_episode_annual_exposure_1950_2025.parquet"
+)
+
+theme_set(theme_minimal(base_size = 11))
+```
+
+# Spatial framework
+
+The analysis uses the frozen 742-station continental rainfall network. Each station is assigned a fixed clipped Voronoi cell so daily concurrence can be expressed both as a fraction of observed stations and as a fraction of represented continental land area.
+
+These are complementary quantities:
+
+$$
+C_t^{station} = \frac{N_{exceed,t}}{N_{eligible,t}},
+$$
+
+and
+
+$$
+C_t^{area} = \frac{A_{exceed,t}}{A_{eligible,t}}.
+$$
+
+Because the network is spatially uneven, area-weighted concurrence is not treated as interchangeable with station concurrence. Large remote cells can contribute substantial represented area even when only one station is extreme.
+
+# Daily concurrence
+
+```{r}
+#| label: daily-threshold-summary
+
+threshold_daily_summary <- daily_spatial[
+  coverage_primary == TRUE,
+  .(
+    days =
+      as.integer(.N),
+
+    days_with_exceedance =
+      as.integer(
+        sum(
+          exceeding_stations > 0L
+        )
+      ),
+
+    median_exceeding_stations =
+      as.numeric(
+        median(
+          exceeding_stations[
+            exceeding_stations > 0L
+          ]
+        )
+      ),
+
+    p90_exceeding_stations =
+      as.numeric(
+        quantile(
+          exceeding_stations[
+            exceeding_stations > 0L
+          ],
+          0.90,
+          names = FALSE
+        )
+      ),
+
+    p99_exceeding_stations =
+      as.numeric(
+        quantile(
+          exceeding_stations[
+            exceeding_stations > 0L
+          ],
+          0.99,
+          names = FALSE
+        )
+      ),
+
+    median_area_fraction =
+      as.numeric(
+        median(
+          area_concurrence_fraction[
+            exceeding_stations > 0L
+          ]
+        )
+      ),
+
+    p90_area_fraction =
+      as.numeric(
+        quantile(
+          area_concurrence_fraction[
+            exceeding_stations > 0L
+          ],
+          0.90,
+          names = FALSE
+        )
+      ),
+
+    p99_area_fraction =
+      as.numeric(
+        quantile(
+          area_concurrence_fraction[
+            exceeding_stations > 0L
+          ],
+          0.99,
+          names = FALSE
+        )
+      ),
+
+    correlation_station_area =
+      as.numeric(
+        cor(
+          station_concurrence_fraction,
+          area_concurrence_fraction,
+          use = "complete.obs"
+        )
+      )
+  ),
+  by = .(
+    threshold_id,
+    threshold_probability
+  )
+]
+
+threshold_daily_summary
+```
+
+At P97.5, the median event day contains only a few concurrent exceedance stations, but the upper tail includes much more widespread events. Station-count concurrence and Voronoi-area concurrence are only moderately correlated, confirming that they capture different dimensions of spatial extent.
+
+```{r}
+#| label: fig-daily-concurrence
+#| fig-width: 8
+#| fig-height: 5
+
+p_daily <- ggplot(
+  daily_spatial[
+    threshold_id == "p975" &
+      coverage_primary == TRUE &
+      exceeding_stations > 0L
+  ],
+  aes(
+    x = station_concurrence_fraction,
+    y = area_concurrence_fraction
+  )
+) +
+  geom_point(alpha = 0.20, size = 0.8) +
+  scale_x_continuous(labels = percent_format(accuracy = 1)) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "Station concurrence and represented-area concurrence are not equivalent",
+    subtitle = "P97.5 event days meeting the primary 80/80 coverage criterion",
+    x = "Fraction of eligible stations exceeding",
+    y = "Fraction of eligible represented area exceeding"
+  )
+
+p_daily
+
+ggsave(
+  file.path(figure_dir, "p975_station_vs_area_concurrence.png"),
+  p_daily,
+  width = 8,
+  height = 5,
+  dpi = 200
+)
+```
+
+# Connected daily clusters
+
+Daily P97.5 exceedance stations are linked when they are no more than 200 km apart. Connected components are classified as:
+
+```text
+1 station      isolated extreme
+2 stations     connected pair
+3+ stations    coherent spatial cluster
+```
+
+Voronoi area does not determine connectivity.
+
+```{r}
+#| label: cluster-summary
+
+cluster_size_summary
+```
+
+The primary 200-km analysis identifies approximately 7,300 coherent 3+ station components. Their median size is five stations, with a 90th percentile of about 20 stations and a 99th percentile of about 60 stations.
+
+```{r}
+#| label: fig-cluster-size
+#| fig-width: 8
+#| fig-height: 5
+
+p_cluster_size <- ggplot(
+  clusters[
+    coherent_cluster == TRUE &
+      station_count >= 3L
+  ],
+  aes(x = station_count)
+) +
+  geom_histogram(
+    binwidth = 2,
+    boundary = 2,
+    closed = "left"
+  ) +
+  coord_cartesian(xlim = c(3, 100)) +
+  labs(
+    title = "Most coherent P97.5 rainfall clusters are small, with a long upper tail",
+    subtitle = "200-km station connectivity; clusters above 100 stations omitted from the displayed x-range",
+    x = "Stations in connected cluster",
+    y = "Clusters"
+  )
+
+p_cluster_size
+
+ggsave(
+  file.path(figure_dir, "p975_cluster_size_distribution.png"),
+  p_cluster_size,
+  width = 8,
+  height = 5,
+  dpi = 200
+)
+```
+
+# Multi-day spatial episodes
+
+Coherent daily clusters are linked across consecutive days when there is station overlap, sufficient station-set overlap, or centroid continuity. Connected components through time define multi-day episodes.
+
+```{r}
+#| label: episode-summary
+
+episode_summary
+```
+
+Most episodes are single-day events, but roughly one-sixth persist across multiple days. Episode duration has a strongly right-skewed distribution and no episodes persist for ten days or longer under the primary linkage rule.
+
+```{r}
+#| label: episode-duration-table
+
+episodes[
+  ,
+  .N,
+  by = duration_days
+][order(duration_days)]
+```
+
+```{r}
+#| label: fig-episode-duration
+#| fig-width: 7
+#| fig-height: 4.5
+
+p_duration <- ggplot(
+  episodes,
+  aes(x = factor(duration_days))
+) +
+  geom_bar() +
+  labs(
+    title = "Coherent extreme-rainfall episodes are usually short lived",
+    x = "Episode duration (days)",
+    y = "Episodes"
+  )
+
+p_duration
+
+ggsave(
+  file.path(figure_dir, "p975_episode_duration_distribution.png"),
+  p_duration,
+  width = 7,
+  height = 4.5,
+  dpi = 200
+)
+```
+
+# Coverage and inferential period
+
+Primary daily coverage requires at least 80% of both the frozen station network and represented continental area. A stricter 90/90 criterion is retained as sensitivity.
+
+```{r}
+#| label: exposure-table
+
+annual_exposure[
+  year %in% c(1950:1952, 2020:2025)
+]
+```
+
+Coverage is effectively complete under the primary 80/80 rule through 2022. In 2023, 358 of 365 days remain eligible. Coverage deteriorates markedly in 2024–2025.
+
+More importantly, post-2022 missingness is not random with respect to extreme rainfall. Low-coverage dates have systematically higher rainfall concurrence than primary-coverage dates. Therefore an eligible-day offset alone cannot make 2024–2025 directly comparable with the historical record.
+
+For this reason:
+
+```text
+Primary inference       1950–2022
+Sensitivity extension   1950–2023
+Descriptive only        2024–2025
+```
+
+The climate-period comparison for spatial episodes is correspondingly:
+
+```text
+1950–1975
+1976–2000
+2001–2022
+```
+
+# Episode occurrence
+
+Annual episode occurrence is modelled with negative-binomial regression and an eligible-day offset.
+
+## Linear trend
+
+```{r}
+#| label: occurrence-linear
+
+linear_frequency
+```
+
+The fitted occurrence-rate change is approximately **−2.0% per decade**, with a 95% interval from approximately **−4.1% to +0.3% per decade**. The primary 1950–2022 result is therefore directionally lower but not clearly separated from zero.
+
+The 1950–2023 sensitivity gives a somewhat stronger decline, but 2023 contains non-random missingness and is not used as the primary inferential endpoint.
+
+## Period comparison
+
+```{r}
+#| label: occurrence-periods
+
+period_frequency
+```
+
+The estimated episode rate is approximately 7% lower during 1976–2000 and approximately 12% lower during 2001–2022 relative to 1950–1975. The recent-period coefficient is individually below zero, but model-level evidence should be considered alongside the AIC comparison.
+
+## Model comparison
+
+```{r}
+#| label: occurrence-model-comparison
+
+frequency_model_comparison
+```
+
+Stationary, linear and three-period models differ by only about one AIC unit. The annual record therefore does not clearly distinguish between stationarity, a modest monotonic decline and a lower recent-period rate.
+
+# Episode spatial extent
+
+## Linear effects
+
+```{r}
+#| label: extent-linear
+
+extent_linear
+```
+
+The principal spatial-size metrics show little evidence of systematic change:
+
+- maximum simultaneous station count is essentially stationary;
+- cumulative unique stations affected shows a small, unresolved decline;
+- Voronoi-represented maximum cluster area is essentially stationary.
+
+```{r}
+#| label: fig-extent-linear
+#| fig-width: 9
+#| fig-height: 5
+
+extent_plot_data <- extent_linear[
+  response != "duration_extra_days"
+]
+
+extent_plot_data[, label := fcase(
+  response == "maximum_simultaneous_stations", "Peak simultaneous stations",
+  response == "unique_stations_affected", "Unique stations affected",
+  response == "maximum_cluster_area_km2", "Maximum represented area"
+)]
+
+p_extent <- ggplot(
+  extent_plot_data,
+  aes(
+    y = label,
+    x = percent_change_per_decade,
+    xmin = conf_low_percent,
+    xmax = conf_high_percent
+  )
+) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  geom_errorbarh(height = 0.2) +
+  geom_point(size = 2.7) +
+  labs(
+    title = "Spatial extent of coherent extreme-rainfall episodes is approximately stationary",
+    x = "Change per decade (%)",
+    y = NULL
+  )
+
+p_extent
+
+ggsave(
+  file.path(figure_dir, "episode_spatial_extent_linear_effects.png"),
+  p_extent,
+  width = 9,
+  height = 5,
+  dpi = 200
+)
+```
+
+## Period effects
+
+```{r}
+#| label: extent-periods
+
+extent_period[
+  response != "duration_extra_days"
+]
+```
+
+The cumulative number of unique stations affected is approximately 6% lower in 2001–2022 than in 1950–1975, but the full model comparison does not clearly distinguish this period model from stationarity.
+
+## Model comparisons
+
+```{r}
+#| label: extent-model-comparison
+
+extent_model_comparison[
+  response != "duration_extra_days"
+]
+```
+
+Stationarity is preferred for maximum simultaneous station count and maximum represented area. For cumulative unique stations, M0, M1 and M2 all lie within approximately one AIC unit, indicating substantial model ambiguity.
+
+# Episode persistence
+
+Duration is the clear exception to the generally stationary spatial-footprint results.
+
+The count response is the number of additional episode days beyond the mandatory first day:
+
+$$
+D^* = D - 1.
+$$
+
+Thus a one-day episode has \(D^*=0\), a two-day episode has \(D^*=1\), and so on.
+
+```{r}
+#| label: duration-linear
+
+extent_linear[
+  response == "duration_extra_days"
+]
+```
+
+Additional duration declines by approximately **4.8% per decade** over 1950–2022, with a 95% interval of approximately **−7.2% to −2.4% per decade**.
+
+```{r}
+#| label: duration-period
+
+extent_period[
+  response == "duration_extra_days"
+]
+```
+
+Relative to 1950–1975, additional duration is approximately:
+
+```text
+1976–2000       19% lower
+2001–2022       21% lower
+```
+
+Both contrasts are clearly below zero.
+
+```{r}
+#| label: duration-model-comparison
+
+extent_model_comparison[
+  response == "duration_extra_days"
+]
+```
+
+The stationary duration model is strongly disfavoured, while the linear and three-period models have nearly equivalent support.
+
+## Overdispersion caveat
+
+The Poisson duration model has Pearson dispersion of approximately **1.51**, indicating moderate overdispersion. The direction and size of the temporal effect are highly stable in the 1950–2023 sensitivity, but the nominal Poisson interval should be interpreted cautiously until robust or quasi-Poisson uncertainty is evaluated.
+
+The episode-duration distribution also contains a large point mass at one day: most episodes have no additional days. The present Poisson model is therefore a parsimonious trend benchmark rather than a final mechanistic persistence model.
+
+# 1950–2023 sensitivity
+
+```{r}
+#| label: sensitivity-2023
+
+extent_sensitivity
+```
+
+Adding 2023 does not materially alter the spatial-size conclusions. The duration trend remains close to −5% per decade and clearly negative. This stability supports the direction of the persistence result despite the emerging coverage limitations in 2023.
+
+# Period descriptives
+
+```{r}
+#| label: period-descriptives
+
+period_descriptives
+```
+
+The descriptive distributions reinforce the model results. Median peak cluster size remains approximately five to six stations across periods and 90th-percentile episode footprints remain broadly comparable. Median duration remains one day throughout, with the temporal signal arising from reduced probability of episodes extending beyond the first day.
+
+# Integrated spatial-extreme findings
+
+The spatial-concurrence analysis supports five main conclusions.
+
+1. **Local extreme rainfall commonly occurs in coherent spatial clusters.** Approximately 5,800 P97.5 extreme days contain at least one 200-km-connected cluster of three or more stations.
+
+2. **The size of coherent episodes is approximately stationary.** There is little evidence for trends in maximum simultaneous station count, cumulative unique stations affected, or maximum Voronoi-represented cluster area over 1950–2022.
+
+3. **Episode occurrence has at most a modest declining tendency.** The fitted frequency change is approximately −2% per decade, but stationary, linear and three-period models have broadly comparable support.
+
+4. **Episode persistence has declined.** Additional duration beyond the first episode day decreases by approximately 5% per decade, and post-1975 periods contain materially fewer additional episode days than 1950–1975.
+
+5. **Coverage after 2022 prevents straightforward recent inference.** Missingness in 2024–2025 is substantial and disproportionately associated with wetter/extreme days. These years are retained descriptively but excluded from primary temporal inference.
+
+Taken together, the results do **not** indicate that coherent Australian extreme-rainfall episodes have become spatially larger. Instead, the clearest temporal signal in this spatial-event framework is reduced multi-day persistence.
+
+# Relationship to the GPD results
+
+The spatial results complement rather than duplicate the EVT magnitude analysis.
+
+The GPD analysis showed:
+
+- little monotonic national change in conditional extreme-event magnitude;
+- strong regional heterogeneity, particularly a robust NSW decline;
+- substantial dependence-related uncertainty.
+
+The spatial event analysis now shows:
+
+- no clear national increase in coherent episode frequency;
+- no clear increase in episode spatial footprint;
+- a clear decline in multi-day persistence.
+
+Thus national extreme-rainfall change cannot be represented adequately by a single statement such as "extremes are increasing" or "extremes are decreasing". Magnitude, occurrence, spatial extent and persistence exhibit different temporal behaviour and substantial regional heterogeneity.
+
+# Remaining sensitivity work
+
+The following analyses are optional rather than prerequisites for the main spatial conclusions:
+
+1. 100-km and 300-km connectivity sensitivity for the principal episode metrics;
+2. robust/quasi-Poisson uncertainty for duration to account for moderate overdispersion;
+3. a hurdle formulation separating one-day versus multi-day occurrence from duration conditional on extending beyond one day;
+4. regional connected-event analyses if spatial footprint trends by state or climate region become a primary research question.
+
+Given the stability of the main spatial-size results and the clear coverage limitations after 2022, these extensions should be pursued only where they can materially change interpretation.
+
+# Outputs for the final research overview
+
+```{r}
+#| label: overview-outputs
+
+spatial_key_results <- rbindlist(
+  list(
+    linear_frequency[, .(
+      domain = "episode_frequency",
+      metric = "episodes_per_eligible_day",
+      percent_change_per_decade,
+      conf_low_percent,
+      conf_high_percent,
+      p_value
+    )],
+    extent_linear[, .(
+      domain = "episode_extent",
+      metric = response,
+      percent_change_per_decade,
+      conf_low_percent,
+      conf_high_percent,
+      p_value
+    )]
+  ),
+  use.names = TRUE,
+  fill = TRUE
+)
+
+fwrite(
+  spatial_key_results,
+  file.path(table_dir, "rainfall_spatial_key_results.csv")
+)
+
+spatial_key_results
+```

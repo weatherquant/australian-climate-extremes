@@ -1,0 +1,13 @@
+response,family,model,parameters,log_likelihood,AIC,delta_AIC
+maximum_simultaneous_stations,negative_binomial,M0,2,-18471.2759360687,36946.5518721373,0
+maximum_simultaneous_stations,negative_binomial,M1,3,-18471.2591413559,36948.5182827118,1.96641057445959
+maximum_simultaneous_stations,negative_binomial,M2,4,-18470.6779710613,36949.3559421226,2.8040699852354
+unique_stations_affected,negative_binomial,M2,4,-19237.3584164974,38482.7168329948,0
+unique_stations_affected,negative_binomial,M0,2,-19239.4204612239,38482.8409224477,0.124089452910994
+unique_stations_affected,negative_binomial,M1,3,-19238.7843052676,38483.5686105351,0.851777540316107
+duration_extra_days,poisson,M1,2,-3559.1510620712,7122.30212414239,0
+duration_extra_days,poisson,M2,3,-3558.26583300955,7122.5316660191,0.229541876707117
+duration_extra_days,poisson,M0,1,-3566.49952836177,7134.99905672354,12.6969325811506
+maximum_cluster_area_km2,lognormal,M0,2,-8281.59501443673,16567.1900288735,0
+maximum_cluster_area_km2,lognormal,M1,3,-8281.58465028348,16569.169300567,1.97927169350805
+maximum_cluster_area_km2,lognormal,M2,4,-8281.0712179557,16570.1424359114,2.95240703793388

@@ -40,3 +40,10 @@ quarto::quarto_render(
 quarto::quarto_render(
   "analysis/08_rainfall_gpd_dependence_sensitivity.qmd"
 )
+
+# ------------------------------------------------------------
+# Extreme rainfall concurrence
+# ------------------------------------------------------------
+quarto::quarto_render(
+  "analysis/09_rainfall_spatial_concurrence.qmd"
+)

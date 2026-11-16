@@ -1,0 +1,2 @@
+model,analysis_period,log_rate_change_per_decade,standard_error,rate_ratio_per_decade,percent_change_per_decade,conf_low_percent,conf_high_percent,p_value,theta
+M1_linear_trend,1950-2022,-0.0199076985501182,0.0114429976579058,0.980289151241032,-1.97108487589683,-4.14519255512414,0.252334301907053,0.0819068652310597,33.9586475142213
