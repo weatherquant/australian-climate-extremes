@@ -1,0 +1,949 @@
+---
+title: "Changes in Australian extreme rainfall"
+subtitle: "Magnitude, regional heterogeneity, spatial extent and persistence"
+author: "Jason West"
+date: last-modified
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    df-print: paged
+    fig-cap-location: bottom
+execute:
+  echo: false
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Executive summary
+
+Changes in extreme rainfall can occur through several distinct dimensions: how often extremes occur, how large local extremes become, how widely they occur at the same time, and how long coherent rainfall systems persist. Collapsing these dimensions into a single national trend can conceal important changes in hazard character.
+
+This study evaluates Australian daily rainfall using a frozen 742-station continental network and an integrated framework spanning conventional rainfall statistics, peaks-over-threshold extreme-value analysis, dependence-aware regional inference, daily spatial concurrence, connected rainfall footprints and multi-day coherent episodes. Extreme-value magnitude analyses use station-specific wet-day thresholds referenced to 1961–1990, with P97.5 and three-day runs declustering as the primary specification. Spatial-event analyses use P97.5 exceedances connected within 200 km and require at least three connected stations to define a coherent daily cluster.
+
+The results do not support a single national narrative of increasing extreme rainfall. National conditional extreme-event magnitude shows no robust monotonic trend. Instead, regional behaviour differs substantially: New South Wales shows a robust decline in conditional tail magnitude, Queensland is better characterised by multi-decadal variability than by a monotonic trend, and Victoria shows a positive directional tendency whose uncertainty becomes substantially wider after accounting for dependence. Dependence-aware resampling inflates regional trend uncertainty by approximately a factor of three while leaving point estimates broadly unchanged.
+
+The spatial-event results tell a similarly differentiated story. Coherent P97.5 rainfall episodes do not show a detectable increase in peak simultaneous station footprint, cumulative stations affected, or Voronoi-represented area. Episode frequency shows at most a modest declining tendency, with stationary, linear and period models receiving broadly similar support. The clearest national spatial-event signal is instead a decline in persistence: additional episode duration beyond the first day decreases by approximately 4.8% per decade over 1950–2022. A quasi-Poisson robustness analysis allowing for moderate overdispersion retains a 95% interval of approximately −7.7% to −1.8% per decade.
+
+These findings show why Australian extreme rainfall should be evaluated as a multidimensional hazard. Magnitude, frequency, spatial extent and persistence can evolve differently, and regional signals can differ substantially from the national aggregate.
+
+# Study objective
+
+The central research question is:
+
+> **How has Australian extreme rainfall changed since 1950 in occurrence, conditional magnitude, spatial coherence and persistence?**
+
+The analysis separates four dimensions of extreme-rainfall hazard:
+
+1. **occurrence**: how frequently extreme-rainfall events occur;
+2. **magnitude**: how large rainfall becomes conditional on exceeding a high local threshold;
+3. **spatial extent**: how many locations experience locally extreme rainfall coherently and simultaneously;
+4. **persistence**: how long coherent spatial extreme-rainfall episodes continue.
+
+This distinction is important because an extreme may become more hazardous through changes in any one dimension without equivalent changes in the others.
+
+# Data and fixed observing network
+
+The analysis uses the Australian daily rainfall archive over the period beginning in 1950. A fixed continental core network of 742 stations was selected using the project's established temporal-completeness and spatial-selection criteria. Freezing the network reduces the risk that changes in station availability are mistaken for changes in rainfall behaviour.
+
+The principal analysis settings are summarised below.
+
+```{r}
+#| label: setup
+
+library(data.table)
+library(arrow)
+library(ggplot2)
+library(scales)
+
+project_root <- if (file.exists("_targets.R")) {
+  "."
+} else if (file.exists("../_targets.R")) {
+  ".."
+} else if (file.exists("renv.lock")) {
+  "."
+} else if (file.exists("../renv.lock")) {
+  ".."
+} else {
+  stop("Could not locate project root.", call. = FALSE)
+}
+
+rainfall_dir <- file.path(project_root, "data-derived", "rainfall")
+gpd_dir <- file.path(rainfall_dir, "models", "gpd")
+spatial_dir <- file.path(rainfall_dir, "spatial_extremes")
+gpd_table_dir <- file.path(project_root, "tables", "rainfall_models", "gpd")
+spatial_table_dir <- file.path(project_root, "tables", "rainfall_spatial_extremes")
+figure_dir <- file.path(project_root, "figures", "research_overview")
+
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+read_csv_if_exists <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  fread(path)
+}
+
+read_parquet_if_exists <- function(path, ...) {
+  if (!file.exists(path)) return(NULL)
+  as.data.table(arrow::read_parquet(path, ...))
+}
+
+theme_set(theme_minimal(base_size = 11))
+```
+
+```{r}
+#| label: study-specification
+
+study_specification <- data.table(
+  component = c(
+    "Rainfall network",
+    "Core analysis period",
+    "Extreme threshold reference",
+    "Primary POT threshold",
+    "Primary declustering",
+    "Accepted rainfall quality",
+    "Primary spatial connectivity",
+    "Coherent daily cluster",
+    "Primary spatial inference period"
+  ),
+  specification = c(
+    "742 fixed continental stations",
+    "1950 onward",
+    "1961–1990",
+    "Station-specific wet-day P97.5",
+    "3-day runs",
+    "PRCP_QUAL 0–4",
+    "200 km",
+    "At least 3 connected P97.5 stations",
+    "1950–2022"
+  )
+)
+
+study_specification
+```
+
+## Spatial representation
+
+Station density varies markedly across Australia. To represent spatial sampling responsibility, each frozen-network station was assigned a clipped Voronoi cell within the Australian analysis domain. The 742 cells reconstruct an analysis area of approximately 7.69 million km².
+
+The weighting is deliberately interpreted as **represented area**, not as direct observation of a continuous rainfall footprint. Sparse inland stations can have very large cells, so station-count and area-weighted concurrence are retained as complementary rather than interchangeable measures.
+
+# Integrated analysis framework
+
+The project uses the following hierarchy:
+
+```text
+Daily rainfall archive
+        |
+        +-- conventional occurrence / intensity / annual-extreme analyses
+        |
+        +-- station-specific POT exceedances
+        |       |
+        |       +-- stationary GPD benchmark
+        |       +-- national temporal GPD models
+        |       +-- regional temporal GPD models
+        |       +-- dependence-aware regional bootstrap
+        |
+        +-- daily P95 / P97.5 / P99 concurrence
+                |
+                +-- 200-km connected P97.5 clusters
+                        |
+                        +-- coherent clusters: >=3 stations
+                                |
+                                +-- multi-day spatial episodes
+                                        |
+                                        +-- frequency
+                                        +-- spatial extent
+                                        +-- persistence
+```
+
+This structure distinguishes changes in local tail magnitude from changes in the footprint and temporal evolution of coherent rainfall systems.
+
+# Peaks-over-threshold extreme-rainfall framework
+
+The primary POT definition uses station-specific P97.5 wet-day thresholds estimated from the 1961–1990 reference period, with three-day runs declustering and accepted rainfall-quality flags 0–4. The primary 1950–2025 event dataset contains approximately 84,351 declustered exceedance events.
+
+Sensitivity analyses across P95, P97.5 and P99 and 2-, 3- and 5-day declustering support P97.5/run-3 as the principal specification without indicating that the main conclusions depend strongly on one arbitrary threshold/declustering choice.
+
+## Stationary upper tail
+
+The national stationary GPD benchmark gives approximately:
+
+$$
+\sigma/u \approx 0.387,
+$$
+
+and
+
+$$
+\xi \approx 0.150.
+$$
+
+The positive shape parameter indicates a heavy upper rainfall tail. The fitted model reproduces empirical upper-tail quantiles closely, providing a suitable benchmark for subsequent temporal analyses.
+
+# National change in conditional extreme magnitude
+
+The national linear scale model indicates approximately:
+
+$$
+-0.14\%\;\text{per decade},
+$$
+
+with an approximate 95% interval of:
+
+$$
+[-0.49,\,+0.20]\%\;\text{per decade}.
+$$
+
+There is therefore **no robust monotonic national trend in conditional extreme-event magnitude**.
+
+A three-period model instead indicates approximately:
+
+```text
+1950–1975     reference
+1976–2000     about 5% lower scale
+2001–2025     close to the early-period level
+```
+
+The stronger national feature is therefore a mid-period reduction followed by recovery rather than sustained monotonic change.
+
+# Regional heterogeneity in extreme magnitude
+
+The near-zero national trend masks substantial regional differences.
+
+## New South Wales
+
+The primary pooled trend is approximately:
+
+$$
+-2.83\%\;\text{per decade}.
+$$
+
+The direction persists across the threshold sensitivity analysis:
+
+```text
+P95       about −2.46% per decade
+P97.5     about −2.83% per decade
+P99       about −2.92% per decade
+```
+
+This is the most consistently negative regional tail-magnitude signal.
+
+## Victoria
+
+The pooled primary trend is approximately:
+
+$$
++1.67\%\;\text{per decade},
+$$
+
+with positive estimates across P95–P99. The direction is therefore stable to threshold choice, although dependence-aware inference materially weakens certainty around this trend.
+
+## Queensland
+
+Queensland does not show a clearly resolved linear trend. Its temporal structure is more consistent with a lower middle period followed by recovery toward the early-period scale.
+
+## Other regions
+
+South Australia, Tasmania and Western Australia do not show clearly resolved temporal scale trends in the pooled regional fits. Western Australia nevertheless has a comparatively heavy stationary upper tail, reinforcing the distinction between **tail character** and **temporal change in tail scale**.
+
+# Dependence-aware regional inference
+
+Regional station events cannot be assumed to be independent because widespread weather systems can produce simultaneous extremes across many stations. A moving-block bootstrap was therefore applied to NSW, Queensland and Victoria using three-year blocks and 200 replicates per model/region.
+
+All 1,200 M1/M2 bootstrap fits succeeded.
+
+```{r}
+#| label: dependence-results
+
+m1_dependence <- read_csv_if_exists(
+  file.path(
+    gpd_table_dir,
+    "regional_gpd_dependence_bootstrap_b3_n200_m1_summary.csv"
+  )
+)
+
+if (!is.null(m1_dependence)) {
+  m1_dependence[, .(
+    region,
+    pooled_change_pct,
+    bootstrap_median_pct,
+    bootstrap_ci_low_pct,
+    bootstrap_ci_high_pct,
+    proportion_negative,
+    proportion_positive,
+    variance_inflation_ratio
+  )]
+}
+```
+
+## NSW remains robust
+
+The dependence-aware NSW median is approximately **−3.01% per decade**, with a 95% interval of approximately **−4.62% to −1.41%**. All 200 bootstrap estimates are negative.
+
+The NSW decline therefore survives explicit dependence adjustment.
+
+## Victoria becomes less certain
+
+Victoria retains a predominantly positive distribution, with a bootstrap median of approximately **+1.56% per decade** and 90% of replicates positive. However, its 95% interval spans approximately **−0.81% to +4.66%**.
+
+The evidence therefore supports a positive directional tendency, not a fully resolved positive trend at the 95% dependence-aware level.
+
+## Dependence primarily changes uncertainty
+
+Bootstrap trend variability is approximately:
+
+```text
+NSW       2.74 × pooled likelihood SE
+QLD       2.81 × pooled likelihood SE
+VIC       3.48 × pooled likelihood SE
+```
+
+The bootstrap medians remain close to the pooled estimates, indicating that dependence primarily changes inferential certainty rather than estimated effect magnitude.
+
+```{r}
+#| label: fig-dependence-comparison
+#| fig-width: 8.5
+#| fig-height: 4.8
+
+if (!is.null(m1_dependence)) {
+  dep_plot <- rbindlist(list(
+    m1_dependence[, .(
+      region,
+      method = "Pooled likelihood",
+      estimate = pooled_change_pct,
+      lower = pooled_ci_low_pct,
+      upper = pooled_ci_high_pct
+    )],
+    m1_dependence[, .(
+      region,
+      method = "3-year block bootstrap",
+      estimate = bootstrap_median_pct,
+      lower = bootstrap_ci_low_pct,
+      upper = bootstrap_ci_high_pct
+    )]
+  ))
+
+  dep_plot[, method := factor(
+    method,
+    levels = c("Pooled likelihood", "3-year block bootstrap")
+  )]
+
+  p_dep <- ggplot(
+    dep_plot,
+    aes(
+      y = region,
+      x = estimate,
+      xmin = lower,
+      xmax = upper,
+      colour = method
+    )
+  ) +
+    geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+    geom_errorbarh(height = 0.18, position = position_dodge(width = 0.45)) +
+    geom_point(size = 2.6, position = position_dodge(width = 0.45)) +
+    labs(
+      title = "Dependence materially widens regional GPD uncertainty",
+      x = "GPD scale change per decade (%)",
+      y = NULL,
+      colour = NULL
+    ) +
+    theme(legend.position = "bottom")
+
+  p_dep
+}
+```
+
+# Daily spatial concurrence
+
+The spatial analysis asks a different question from the GPD models: when locally extreme rainfall occurs, how widely does it occur at the same time?
+
+For each day:
+
+$$
+C_t^{station}=
+\frac{N_{exceed,t}}{N_{eligible,t}},
+$$
+
+and:
+
+$$
+C_t^{area}=
+\frac{A_{exceed,t}}{A_{eligible,t}}.
+$$
+
+The first describes observational breadth across the gauge network. The second describes represented geographic sampling area.
+
+```{r}
+#| label: load-spatial
+
+daily_spatial <- read_parquet_if_exists(
+  file.path(spatial_dir, "rainfall_spatial_extreme_days_1950_2025.parquet")
+)
+
+clusters <- read_parquet_if_exists(
+  file.path(spatial_dir, "rainfall_spatial_extreme_clusters_p975_200km_1950_2025.parquet")
+)
+
+episodes <- read_parquet_if_exists(
+  file.path(spatial_dir, "rainfall_spatial_extreme_episodes_p975_200km_1950_2025.parquet")
+)
+```
+
+At P97.5, station-count and area-weighted concurrence are only moderately correlated, approximately 0.53. This confirms that spatial weighting adds information rather than simply reproducing station counts.
+
+```{r}
+#| label: fig-concurrence
+#| fig-width: 8
+#| fig-height: 5
+
+if (!is.null(daily_spatial)) {
+  p_concurrence <- ggplot(
+    daily_spatial[
+      threshold_id == "p975" &
+        coverage_primary == TRUE &
+        exceeding_stations > 0L
+    ],
+    aes(
+      x = station_concurrence_fraction,
+      y = area_concurrence_fraction
+    )
+  ) +
+    geom_point(alpha = 0.18, size = 0.75) +
+    scale_x_continuous(labels = percent_format(accuracy = 1)) +
+    scale_y_continuous(labels = percent_format(accuracy = 1)) +
+    labs(
+      title = "Gauge concurrence and represented-area concurrence capture different spatial properties",
+      subtitle = "P97.5 event days meeting the primary 80/80 coverage criterion",
+      x = "Eligible stations exceeding",
+      y = "Eligible represented area exceeding"
+    )
+
+  p_concurrence
+}
+```
+
+# Connected extreme-rainfall footprints
+
+Daily P97.5 exceedance stations are connected when separated by no more than 200 km. Connected components are classified as:
+
+```text
+1 station      isolated extreme
+2 stations     connected pair
+3+ stations    coherent spatial cluster
+```
+
+Voronoi area describes the representation of a cluster but does not create connectivity.
+
+Across the analysis, approximately:
+
+```text
+Isolated components        14,903
+Connected pairs             3,827
+Coherent 3+ clusters        7,282
+```
+
+Coherent clusters have:
+
+```text
+Median size                  5 stations
+90th percentile             20 stations
+99th percentile             60 stations
+Maximum                    146 stations
+```
+
+```{r}
+#| label: fig-clusters
+#| fig-width: 8
+#| fig-height: 5
+
+if (!is.null(clusters)) {
+  p_clusters <- ggplot(
+    clusters[coherent_cluster == TRUE],
+    aes(x = station_count)
+  ) +
+    geom_histogram(binwidth = 2, boundary = 2, closed = "left") +
+    coord_cartesian(xlim = c(3, 100)) +
+    labs(
+      title = "Coherent extreme-rainfall clusters have a long upper tail",
+      subtitle = "P97.5 exceedances connected within 200 km; display truncated at 100 stations",
+      x = "Stations in connected cluster",
+      y = "Clusters"
+    )
+
+  p_clusters
+}
+```
+
+# Multi-day coherent rainfall episodes
+
+Daily coherent clusters are linked across consecutive days when their station membership or centroids indicate spatial continuity. This prevents successive manifestations of one rainfall system from being counted as independent daily events.
+
+The resulting catalogue contains approximately:
+
+```text
+Total episodes             5,835
+Single-day episodes        4,811
+Multi-day episodes         1,024
+```
+
+Episode duration has:
+
+```text
+Median                      1 day
+90th percentile             2 days
+99th percentile             4 days
+Maximum                     8 days
+```
+
+Large episodes illustrate the distinction between peak simultaneous footprint and cumulative footprint. Examples include:
+
+```text
+4–6 February 1973
+170 unique stations affected
+146 stations simultaneously at peak
+
+27 February–3 March 2012
+206 unique stations affected
+135 stations simultaneously at peak
+
+18–22 January 1956
+214 unique stations affected
+127 stations simultaneously at peak
+```
+
+# Coverage and inferential period
+
+Spatial inference requires explicit treatment of changing observing coverage.
+
+Primary daily coverage requires at least 80% of both the frozen station network and represented continental area. A 90/90 rule is retained as a stricter sensitivity criterion.
+
+```{r}
+#| label: exposure
+
+annual_exposure <- read_parquet_if_exists(
+  file.path(
+    spatial_dir,
+    "rainfall_spatial_episode_annual_exposure_1950_2025.parquet"
+  )
+)
+
+if (!is.null(annual_exposure)) {
+  annual_exposure[year %in% c(1950:1952, 2020:2025)]
+}
+```
+
+Primary 80/80 coverage is complete through 2022. In 2023, 358 of 365 days remain eligible. Coverage deteriorates substantially during 2024 and 2025.
+
+Critically, post-2022 missingness is not random with respect to rainfall. Excluded low-coverage dates have higher mean station exceedance counts and a higher probability of any P97.5 exceedance than retained dates. A simple eligible-day offset therefore cannot fully correct 2024–2025.
+
+The spatial inferential windows are consequently:
+
+```text
+Primary inference       1950–2022
+Sensitivity extension   1950–2023
+Descriptive only        2024–2025
+```
+
+The period comparison in the spatial analysis is:
+
+```text
+1950–1975
+1976–2000
+2001–2022
+```
+
+# Frequency of coherent extreme-rainfall episodes
+
+Annual episode occurrence is modelled using negative-binomial regression with eligible days as an offset.
+
+```{r}
+#| label: frequency-results
+
+frequency_linear <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_episode_linear_effect.csv")
+)
+
+frequency_periods <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_episode_period_effects.csv")
+)
+
+frequency_models <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_episode_model_comparison.csv")
+)
+
+frequency_linear
+frequency_periods
+frequency_models
+```
+
+Over 1950–2022, the fitted rate change is approximately:
+
+$$
+-1.97\%\;\text{per decade},
+$$
+
+with a 95% interval of approximately:
+
+$$
+[-4.15,+0.25]\%.
+$$
+
+The linear decline is therefore suggestive rather than resolved.
+
+Relative to 1950–1975, the estimated rate is about 7% lower during 1976–2000 and about 12% lower during 2001–2022. However, stationary, linear and three-period models lie within approximately one AIC unit. The record therefore does not clearly distinguish among stationarity, a modest monotonic decrease and a lower recent-period rate.
+
+# Spatial extent of coherent episodes
+
+```{r}
+#| label: extent-results
+
+extent_linear <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_extent_linear_effects.csv")
+)
+
+extent_periods <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_extent_period_effects.csv")
+)
+
+extent_models <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_extent_model_comparison.csv")
+)
+
+extent_linear
+```
+
+Three spatial-size metrics show little evidence of systematic change.
+
+## Peak simultaneous station footprint
+
+The fitted change is approximately:
+
+$$
++0.10\%\;\text{per decade},
+$$
+
+with a 95% interval of approximately:
+
+$$
+[-0.94,+1.15]\%.
+$$
+
+## Cumulative station footprint
+
+Unique stations affected per episode change by approximately:
+
+$$
+-0.64\%\;\text{per decade},
+$$
+
+with a 95% interval spanning approximately:
+
+$$
+[-1.74,+0.47]\%.
+$$
+
+## Maximum represented area
+
+The fitted change in maximum Voronoi-represented cluster area is approximately:
+
+$$
+-0.09\%\;\text{per decade},
+$$
+
+with a 95% interval of approximately:
+
+$$
+[-1.37,+1.20]\%.
+$$
+
+Taken together, these results provide **no evidence that coherent Australian extreme-rainfall episodes have become spatially larger** over the primary inferential period.
+
+```{r}
+#| label: fig-extent-effects
+#| fig-width: 9
+#| fig-height: 5
+
+if (!is.null(extent_linear)) {
+  extent_plot <- copy(extent_linear[response != "duration_extra_days"])
+  extent_plot[, metric := fcase(
+    response == "maximum_simultaneous_stations", "Peak simultaneous stations",
+    response == "unique_stations_affected", "Unique stations affected",
+    response == "maximum_cluster_area_km2", "Maximum represented area"
+  )]
+
+  p_extent <- ggplot(
+    extent_plot,
+    aes(
+      y = metric,
+      x = percent_change_per_decade,
+      xmin = conf_low_percent,
+      xmax = conf_high_percent
+    )
+  ) +
+    geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+    geom_errorbarh(height = 0.18) +
+    geom_point(size = 2.7) +
+    labs(
+      title = "Spatial extent of coherent extreme-rainfall episodes is approximately stationary",
+      x = "Change per decade (%)",
+      y = NULL
+    )
+
+  p_extent
+}
+```
+
+# Declining multi-day persistence
+
+Episode persistence is the clearest temporal signal in the spatial-event analysis.
+
+Because every episode necessarily lasts at least one day, duration is modelled as the number of additional days beyond the first:
+
+$$
+D^*=D-1.
+$$
+
+The initial Poisson model indicated moderate overdispersion, with Pearson dispersion approximately 1.51. A quasi-Poisson robustness analysis was therefore used for final duration uncertainty.
+
+```{r}
+#| label: duration-robustness
+
+qp_linear <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_duration_quasipoisson_linear.csv")
+)
+
+qp_periods <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_duration_quasipoisson_periods.csv")
+)
+
+qp_tests <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_duration_quasipoisson_tests.csv")
+)
+
+qp_sensitivity <- read_csv_if_exists(
+  file.path(spatial_table_dir, "rainfall_spatial_duration_quasipoisson_sensitivity_2023.csv")
+)
+
+qp_linear
+qp_periods
+qp_tests
+qp_sensitivity
+```
+
+The primary quasi-Poisson trend is approximately:
+
+$$
+-4.79\%\;\text{per decade},
+$$
+
+with a 95% interval of approximately:
+
+$$
+[-7.69,-1.80]\%.
+$$
+
+The 1950–2023 sensitivity gives an almost identical decline of approximately **−4.96% per decade**, with its 95% interval remaining below zero.
+
+Relative to 1950–1975, additional duration is approximately:
+
+```text
+1976–2000       18.8% lower
+2001–2022       21.5% lower
+```
+
+Both quasi-Poisson intervals remain clearly below zero. Analysis-of-deviance tests support both linear and three-period temporal structures over a stationary duration model.
+
+The strongest national spatial-event conclusion is therefore:
+
+> **Coherent extreme-rainfall episodes have become less persistent, even though their spatial footprint has not detectably increased or decreased.**
+
+```{r}
+#| label: fig-integrated-spatial-effects
+#| fig-width: 9
+#| fig-height: 5.5
+
+if (!is.null(extent_linear) && !is.null(qp_linear)) {
+  integrated_effects <- rbindlist(list(
+    extent_linear[response != "duration_extra_days", .(
+      metric = fcase(
+        response == "maximum_simultaneous_stations", "Peak simultaneous stations",
+        response == "unique_stations_affected", "Unique stations affected",
+        response == "maximum_cluster_area_km2", "Maximum represented area"
+      ),
+      estimate = percent_change_per_decade,
+      lower = conf_low_percent,
+      upper = conf_high_percent
+    )],
+    qp_linear[, .(
+      metric = "Additional duration",
+      estimate = percent_change_per_decade,
+      lower = conf_low_percent,
+      upper = conf_high_percent
+    )]
+  ))
+
+  integrated_effects[, metric := factor(
+    metric,
+    levels = rev(c(
+      "Peak simultaneous stations",
+      "Unique stations affected",
+      "Maximum represented area",
+      "Additional duration"
+    ))
+  )]
+
+  p_integrated <- ggplot(
+    integrated_effects,
+    aes(
+      y = metric,
+      x = estimate,
+      xmin = lower,
+      xmax = upper
+    )
+  ) +
+    geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+    geom_errorbarh(height = 0.18) +
+    geom_point(size = 2.8) +
+    labs(
+      title = "Persistence declines while spatial episode size remains approximately stationary",
+      subtitle = "1950–2022; duration uses quasi-Poisson uncertainty",
+      x = "Change per decade (%)",
+      y = NULL
+    )
+
+  p_integrated
+}
+```
+
+# Integrated evidence
+
+The analyses provide a consistent multidimensional interpretation.
+
+```{r}
+#| label: integrated-findings
+
+integrated_findings <- data.table(
+  dimension = c(
+    "National conditional magnitude",
+    "Regional conditional magnitude",
+    "NSW conditional magnitude",
+    "Victoria conditional magnitude",
+    "Queensland conditional magnitude",
+    "Spatial episode frequency",
+    "Peak spatial footprint",
+    "Cumulative spatial footprint",
+    "Represented spatial area",
+    "Multi-day persistence"
+  ),
+  finding = c(
+    "No robust monotonic trend",
+    "Strong heterogeneity",
+    "Robust decline",
+    "Positive tendency; dependence-sensitive",
+    "Multi-decadal rather than monotonic behaviour",
+    "Stationary to modest declining tendency",
+    "Approximately stationary",
+    "Approximately stationary",
+    "Approximately stationary",
+    "Clear decline"
+  ),
+  confidence = c(
+    "Moderate",
+    "High",
+    "High",
+    "Moderate",
+    "Moderate",
+    "Moderate",
+    "High for absence of a material linear trend",
+    "Moderate",
+    "High for absence of a material linear trend",
+    "High"
+  )
+)
+
+integrated_findings
+```
+
+A near-zero national magnitude trend should therefore not be interpreted as an absence of change. It coexists with strong regional heterogeneity. Likewise, stable spatial footprint does not imply stable event character, because episode persistence has declined.
+
+The results support three broader conclusions.
+
+First, **national aggregation masks regionally opposing behaviour**. NSW and Victoria illustrate this particularly clearly.
+
+Second, **dependence matters primarily for uncertainty**. Regional point estimates remain relatively stable after block resampling, but uncertainty becomes much wider.
+
+Third, **extreme-rainfall hazard is multidimensional**. Conditional magnitude, frequency, spatial footprint and persistence do not exhibit a common temporal direction.
+
+# Limitations
+
+Several limitations should inform interpretation.
+
+1. **Gauge representation is spatially uneven.** Voronoi weighting corrects for network density only approximately and represents sampling responsibility rather than a directly observed continuous rainfall footprint.
+
+2. **Spatial connectivity is operationally defined.** The 200-km threshold identifies coherent station networks but does not explicitly identify synoptic systems or rainfall-field morphology.
+
+3. **Episode linkage approximates storm evolution.** Temporal continuity is inferred from station overlap, station-set similarity and centroid displacement rather than from meteorological tracking fields.
+
+4. **Regional GPD models pool heterogeneous station environments.** The dependence bootstrap addresses some inferential consequences but does not replace a full spatial extreme-value model.
+
+5. **Thresholds are fixed to the 1961–1990 reference climate.** This is intentional for temporal comparability, but threshold estimation uncertainty is not propagated throughout every downstream analysis.
+
+6. **Post-2022 spatial coverage limits inference.** Missingness during 2024–2025 is substantial and preferentially associated with wetter/extreme dates. These years are therefore retained descriptively but excluded from primary spatial trend inference.
+
+7. **The analysis is descriptive/inferential rather than attributional.** No attempt is made here to assign observed temporal behaviour to anthropogenic forcing, ENSO, IOD, SAM or other climate drivers.
+
+# Conclusions
+
+The Australian extreme-rainfall record does not support a single national statement that extremes are simply increasing or decreasing.
+
+1. **Conditional extreme-rainfall magnitude shows no robust monotonic national trend.** The national signal is comparatively weak and contains multi-decadal structure.
+
+2. **Regional magnitude changes are substantially heterogeneous.** NSW shows a robust declining tail-scale signal that survives threshold sensitivity and dependence-aware resampling. Victoria retains a positive directional signal, but dependence-aware uncertainty includes no change at the 95% level. Queensland is better characterised by multi-decadal variability than by a simple linear trend.
+
+3. **Coherent spatial extreme-rainfall episodes have not become detectably larger.** Peak simultaneous station footprint, cumulative stations affected and maximum represented area are all approximately stationary over 1950–2022.
+
+4. **Episode frequency is compatible with stationarity or a modest decline.** Linear, three-period and stationary occurrence models have broadly similar support.
+
+5. **Multi-day persistence has clearly declined.** Allowing for moderate overdispersion, additional episode duration decreases by approximately 4.8% per decade over 1950–2022, with a quasi-Poisson 95% interval of approximately −7.7% to −1.8% per decade.
+
+Taken together, the results demonstrate that changes in Australian extreme rainfall depend strongly on the dimension of hazard being examined. Magnitude, occurrence, spatial extent and persistence should therefore be evaluated separately, with explicit treatment of regional heterogeneity, dependence and observing-network exposure.
+
+# Reproducibility and supporting analyses
+
+This overview is a synthesis rather than the full computational record. Detailed diagnostics, sensitivity analyses and implementation are retained in the supporting project analyses, including:
+
+```text
+06_rainfall_pot_diagnostics.qmd
+07_rainfall_gpd_results.qmd
+08_rainfall_gpd_dependence_sensitivity.qmd
+09_rainfall_spatial_concurrence.qmd
+```
+
+and the associated processing/model scripts under:
+
+```text
+R/processing/
+R/models/
+R/spatial/
+```
+
+The supporting artefacts preserve threshold sensitivity, declustering sensitivity, regional models, dependence-aware bootstrap outputs, spatial weighting, daily concurrence products, connected clusters, multi-day episodes and robustness analyses.
+
+# Pause point and future work
+
+The present project phase is sufficiently complete for publication-facing synthesis. Further work should be driven by specific scientific questions rather than by adding model complexity for its own sake.
+
+High-value future extensions include:
+
+- 100-km and 300-km connectivity sensitivity where spatial-event conclusions require it;
+- a hurdle persistence model explicitly separating one-day versus multi-day episodes;
+- regional spatial-episode analyses;
+- meteorological or climate-mode attribution of the identified regional and persistence signals;
+- integration with gridded/radar products to evaluate continuous rainfall footprint independently of the station network;
+- explicit non-stationary spatial extreme-value models where a particular regional question warrants their complexity.
+
+For the current analysis, the evidence is sufficient to pause model development and move to scientific review, manuscript refinement and publication-quality figure/table production.

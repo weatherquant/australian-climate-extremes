@@ -60,3 +60,12 @@ quarto::quarto_render(
 # - episode frequency is approximately stationary to modestly declining;
 # - the clearest spatial-event change is shorter persistence;
 # - dependence and network exposure materially affect uncertainty and therefore need explicit treatment.
+
+
+# ------------------------------------------------------------
+# SUMMARY REPORT 1
+# ------------------------------------------------------------
+quarto::quarto_render(
+  "analysis/99_research_overview.qmd"
+)
+
