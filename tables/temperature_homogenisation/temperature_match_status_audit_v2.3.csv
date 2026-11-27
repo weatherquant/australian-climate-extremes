@@ -1,0 +1,9 @@
+element,match_status,rows
+tmax,homogenised_only,5614
+tmax,matched,3852886
+tmax,missing_both,81784
+tmax,raw_only,25329
+tmin,homogenised_only,5748
+tmin,matched,3831664
+tmin,missing_both,86802
+tmin,raw_only,41399

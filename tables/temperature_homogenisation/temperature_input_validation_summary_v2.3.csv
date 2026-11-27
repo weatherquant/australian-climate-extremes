@@ -1,0 +1,13 @@
+metric,value
+ACORN locations,112
+Primary-site rows,207
+Comparison rows,3965613
+Paired daily rows,3894988
+First comparison date,1910-01-01
+Last comparison date,2021-12-31
+Matched Tmax days,3852886
+Matched Tmin days,3831664
+Matched Tmean days,3789562
+Maximum Tmax adjustment arithmetic error,0e+00
+Maximum Tmin adjustment arithmetic error,0e+00
+Annual completeness threshold,0.9
