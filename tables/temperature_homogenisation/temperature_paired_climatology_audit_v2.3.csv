@@ -1,0 +1,4 @@
+element,stations,valid_climatologies,minimum_climatology_years,median_climatology_years
+tmax,112,100,11,30
+tmin,112,100,11,29
+tmean,112,94,9,29
